@@ -95,14 +95,13 @@ const LoginPage = () => {
         {/* Right Side - Login Form */}
         <div className="w-full lg:w-1/2 flex items-center justify-center p-8">
           <div className="w-full max-w-md">
-            {/* Mobile Logo */}
             <div className="lg:hidden text-center mb-8">
               <div className="inline-flex items-center">
                 <div className="w-12 h-12 bg-gradient-to-br from-orange-500 to-red-600 rounded-xl flex items-center justify-center shadow-lg shadow-orange-500/30">
                   <Utensils className="w-6 h-6 text-white" />
                 </div>
                 <div className="ml-3">
-                  <h1 className="text-3xl font-bold text-white">BitNBuild</h1>
+                  <h1 className="text-3xl font-bold text-white">NourishNet</h1>
                   <p className="text-orange-300 text-sm">Tiffin Management</p>
                 </div>
               </div>

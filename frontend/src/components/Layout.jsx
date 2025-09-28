@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { useAuth } from '@clerk/clerk-react'
+import { useAuth, UserButton, useUser } from '@clerk/clerk-react'
 import { useAuthContext } from '../contexts/AuthContext'
 import { 
   LayoutDashboard, 
@@ -15,6 +15,7 @@ import {
 
 const Layout = ({ children }) => {
   const { signOut } = useAuth()
+  const { user } = useUser()
   const { vendor } = useAuthContext()
   const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -38,9 +39,25 @@ const Layout = ({ children }) => {
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setSidebarOpen(false)} />
         <div className="fixed inset-y-0 left-0 flex w-72 flex-col bg-white/95 backdrop-blur-md border-r border-white/20">
           <div className="flex h-20 items-center justify-between px-6">
-            <div>
-              <h1 className="text-xl font-bold gradient-text">BitNBuild</h1>
-              <p className="text-sm text-gray-600">Vendor Dashboard</p>
+            <div className="flex items-center gap-3">
+              {/* Mobile Profile Picture */}
+              {user?.imageUrl || vendor?.profilePicture ? (
+                <img 
+                  src={user?.imageUrl || vendor?.profilePicture} 
+                  alt="Profile" 
+                  className="h-10 w-10 rounded-xl shadow-lg object-cover border-2 border-white"
+                />
+              ) : (
+                <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-blue-100 to-indigo-100 flex items-center justify-center shadow-lg">
+                  <User className="h-5 w-5 text-blue-600" />
+                </div>
+              )}
+              <div>
+                <h1 className="text-lg font-bold gradient-text">NourishNet</h1>
+                <p className="text-xs text-gray-600">
+                  {user?.primaryEmailAddress?.emailAddress?.split('@')[0] || 'Vendor'}
+                </p>
+              </div>
             </div>
             <button
               onClick={() => setSidebarOpen(false)}
@@ -77,7 +94,7 @@ const Layout = ({ children }) => {
         <div className="flex flex-col flex-grow bg-white/95 backdrop-blur-md border-r border-white/20 shadow-2xl">
           <div className="flex h-20 items-center px-6">
             <div>
-              <h1 className="text-2xl font-bold gradient-text">BitNBuild</h1>
+              <h1 className="text-2xl font-bold gradient-text">NourishNet</h1>
               <p className="text-sm text-gray-600">Vendor Dashboard</p>
             </div>
           </div>
@@ -117,23 +134,28 @@ const Layout = ({ children }) => {
             
             <div className="flex items-center gap-6">
               <div className="flex items-center gap-4">
-                <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-blue-100 to-indigo-100 flex items-center justify-center shadow-lg">
-                  <User className="h-6 w-6 text-blue-600" />
-                </div>
+                {/* Clerk UserButton (circular profile picture) */}
+                <UserButton 
+                  appearance={{
+                    elements: {
+                      avatarBox: "h-12 w-12",
+                      userButtonPopoverCard: "shadow-2xl border border-gray-200",
+                      userButtonPopoverActions: "bg-white"
+                    }
+                  }}
+                  showName={false}
+                />
+                
+                {/* User Info */}
                 <div className="hidden sm:block">
                   <p className="text-lg font-bold text-gray-900">
-                    {vendor?.businessName || 'Vendor'}
+                    {vendor?.businessName || user?.fullName || 'Vendor'}
                   </p>
-                  <p className="text-sm text-gray-600">{vendor?.email}</p>
+                  <p className="text-sm text-gray-600">
+                    {user?.primaryEmailAddress?.emailAddress || vendor?.email}
+                  </p>
                 </div>
               </div>
-              <button
-                onClick={handleSignOut}
-                className="icon-button icon-button-delete"
-                title="Sign Out"
-              >
-                <LogOut className="h-5 w-5" />
-              </button>
             </div>
           </div>
         </header>

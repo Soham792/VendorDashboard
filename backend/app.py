@@ -17,7 +17,9 @@ from werkzeug.security import generate_password_hash, check_password_hash
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=['http://localhost:3000', 'http://127.0.0.1:3000'], 
+     allow_headers=['Content-Type', 'Authorization'], 
+     methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
 
 # MongoDB configuration with URL-encoded password
 # The password 'Manglam@529' needs URL encoding for the @ symbol
@@ -50,37 +52,84 @@ def verify_clerk_token(f):
         # Allow CORS preflight requests to pass
         if request.method == 'OPTIONS':
             return jsonify({'ok': True})
+        
+        # Get token from header
         token = None
         if 'Authorization' in request.headers:
             auth_header = request.headers['Authorization']
             try:
                 token = auth_header.split(' ')[1]
             except IndexError:
+                print("Invalid token format in Authorization header")
                 return jsonify({'message': 'Invalid token format'}), 401
 
         if not token:
+            print("No token found in Authorization header")
             return jsonify({'message': 'Token is missing'}), 401
 
         try:
-            # For development, let's skip Clerk verification and use a mock user_id
-            # Replace this with actual Clerk verification in production
-            user_id = "mock_user_id_123"  # Mock user ID for testing
-
-            # Uncomment below for actual Clerk verification:
-            # headers = {
-            #     'Authorization': f'Bearer {CLERK_SECRET_KEY}',
-            #     'Content-Type': 'application/json'
-            # }
-            # response = requests.get(f'https://api.clerk.com/v1/sessions/{token}', headers=headers)
-            # if response.status_code != 200:
-            #     return jsonify({'message': 'Invalid token'}), 401
-            # data = response.json()
-            # user_id = data.get('user_id')
-            # if not user_id:
-            #     return jsonify({'message': 'Invalid token'}), 401
+            # TEMPORARY: More lenient authentication for debugging
+            user_id = None
+            
+            # Method 1: Try to decode JWT payload (Clerk format)
+            try:
+                import base64
+                import json
+                
+                token_parts = token.split('.')
+                if len(token_parts) == 3:
+                    payload = token_parts[1]
+                    # Add padding if needed
+                    payload += '=' * (4 - len(payload) % 4)
+                    decoded_payload = base64.urlsafe_b64decode(payload)
+                    token_data = json.loads(decoded_payload)
+                    
+                    # Extract user information from JWT
+                    user_id = (token_data.get('sub') or 
+                              token_data.get('user_id') or 
+                              token_data.get('userId') or
+                              token_data.get('id'))
+                    
+                    # Extract additional user info
+                    user_email = token_data.get('email') or token_data.get('email_address')
+                    user_name = token_data.get('name') or token_data.get('given_name') or token_data.get('first_name')
+                    user_picture = token_data.get('picture') or token_data.get('image_url') or token_data.get('profile_image_url')
+                    
+                    if user_id:
+                        print(f"Successfully decoded user_id from JWT: {user_id}")
+                        print(f"User email: {user_email}")
+                        print(f"User name: {user_name}")
+                        print(f"User picture: {user_picture}")
+                        
+                        # Store user info in request context for use in endpoints
+                        request.clerk_user_info = {
+                            'email': user_email,
+                            'name': user_name,
+                            'picture': user_picture
+                        }
+                    else:
+                        print(f"JWT payload: {token_data}")
+                        request.clerk_user_info = {}
+                        
+            except Exception as jwt_error:
+                print(f"JWT decoding failed: {jwt_error}")
+            
+            # Method 2: Fallback - use a consistent hash of the token
+            if not user_id:
+                import hashlib
+                user_id = hashlib.md5(token.encode()).hexdigest()[:16]
+                print(f"Using fallback user_id (token hash): {user_id}")
+            
+            # Method 3: Last resort - use a default user for testing
+            if not user_id:
+                user_id = "default_test_user"
+                print(f"Using default test user_id: {user_id}")
 
         except Exception as e:
-            return jsonify({'message': 'Token verification failed'}), 401
+            print(f"Authentication error: {e}")
+            # Even if there's an error, use a fallback for debugging
+            user_id = "error_fallback_user"
+            print(f"Using error fallback user_id: {user_id}")
 
         return f(user_id, *args, **kwargs)
     return decorated
@@ -104,6 +153,68 @@ def to_object_id(id_str):
     except Exception:
         return None
 
+# Helper to get or create vendor for user
+def get_or_create_vendor(user_id):
+    """Get existing vendor or create a new one for the user"""
+    if not mongo:
+        print("MongoDB not connected")
+        return None
+    
+    try:
+        # Try to find existing vendor
+        vendor = mongo.db.vendors.find_one({'clerk_user_id': user_id})
+        print(f"Found existing vendor for user {user_id}: {vendor is not None}")
+        
+        if not vendor:
+            # Get user info from request context (set by auth decorator)
+            user_info = getattr(request, 'clerk_user_info', {})
+            user_email = user_info.get('email')
+            user_name = user_info.get('name')
+            user_picture = user_info.get('picture')
+            
+            # Create new vendor profile for this user with real data
+            vendor_data = {
+                'clerk_user_id': user_id,
+                'businessName': user_name or 'My Business',  # Use real name or default
+                'email': user_email or f'user_{user_id[:8]}@example.com',  # Use real email or placeholder
+                'phone': '+91-0000000000',  # Placeholder phone (user can update)
+                'address': 'Business Address',  # Placeholder address (user can update)
+                'profilePicture': user_picture,  # Store Google profile picture
+                'createdAt': datetime.utcnow(),
+                'updatedAt': datetime.utcnow()
+            }
+            
+            result = mongo.db.vendors.insert_one(vendor_data)
+            vendor_data['_id'] = result.inserted_id
+            vendor = vendor_data
+            print(f"Created new vendor for user {user_id}: {result.inserted_id}")
+            print(f"Using real email: {user_email}, name: {user_name}")
+        else:
+            # Update existing vendor with latest user info if available
+            user_info = getattr(request, 'clerk_user_info', {})
+            if user_info.get('email') and user_info.get('email') != vendor.get('email'):
+                update_data = {}
+                if user_info.get('email'):
+                    update_data['email'] = user_info['email']
+                if user_info.get('name') and not vendor.get('businessName') or vendor.get('businessName') == 'My Business':
+                    update_data['businessName'] = user_info['name']
+                if user_info.get('picture'):
+                    update_data['profilePicture'] = user_info['picture']
+                
+                if update_data:
+                    update_data['updatedAt'] = datetime.utcnow()
+                    mongo.db.vendors.update_one(
+                        {'_id': vendor['_id']}, 
+                        {'$set': update_data}
+                    )
+                    vendor.update(update_data)
+                    print(f"Updated vendor with latest user info: {update_data}")
+        
+        return vendor
+    except Exception as e:
+        print(f"Error in get_or_create_vendor: {e}")
+        return None
+
 # Test route
 @app.route('/api/test', methods=['GET'])
 def test_api():
@@ -113,34 +224,56 @@ def test_api():
         'timestamp': datetime.utcnow().isoformat()
     })
 
-# Vendors routes
+# Test auth route
+@app.route('/api/test-auth', methods=['GET'])
+@verify_clerk_token
+def test_auth(user_id):
+    return jsonify({
+        'message': 'Authentication working!',
+        'user_id': user_id,
+        'timestamp': datetime.utcnow().isoformat()
+    })
+
+# Vendor profile route
 @app.route('/api/vendors/me', methods=['GET'])
 @verify_clerk_token
-def get_vendor(user_id):
+def get_vendor_profile(user_id):
     if not mongo:
         return jsonify({'error': 'Database not connected'}), 500
 
     try:
-        vendor = mongo.db.vendors.find_one({'clerk_user_id': user_id})
+        print(f"Getting vendor profile for user: {user_id}")
+        # Get or create vendor for this user
+        vendor = get_or_create_vendor(user_id)
         if not vendor:
-            return jsonify({'message': 'Vendor not found'}), 404
+            print(f"Failed to get/create vendor for user: {user_id}")
+            return jsonify({'error': 'Failed to get vendor profile'}), 500
+
+        print(f"Returning vendor profile: {vendor.get('businessName', 'Unknown')}")
         return jsonify(serialize_doc(vendor))
     except Exception as e:
+        print(f"Error in get_vendor_profile: {e}")
         return jsonify({'error': str(e)}), 500
-
-# Subscriptions CRUD (needed by frontend)
 @app.route('/api/subscriptions', methods=['GET'])
 @verify_clerk_token
 def list_subscriptions(user_id):
     if not mongo:
         return jsonify({'error': 'Database not connected'}), 500
     try:
-        vendor = mongo.db.vendors.find_one({'clerk_user_id': user_id})
+        print(f"Getting subscriptions for user: {user_id}")
+        # Get or create vendor for this user
+        vendor = get_or_create_vendor(user_id)
         if not vendor:
+            print(f"No vendor found for user: {user_id}")
             return jsonify([])
-        subs = list(mongo.db.subscriptions.find({'vendor_id': str(vendor['_id'])}))
+        
+        vendor_id = str(vendor['_id'])
+        print(f"Looking for subscriptions for vendor_id: {vendor_id}")
+        subs = list(mongo.db.subscriptions.find({'vendor_id': vendor_id}))
+        print(f"Found {len(subs)} subscriptions")
         return jsonify(serialize_doc(subs))
     except Exception as e:
+        print(f"Error in list_subscriptions: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/subscriptions', methods=['POST'])
@@ -351,7 +484,8 @@ def get_dashboard_stats(user_id):
         return jsonify({'error': 'Database not connected'}), 500
 
     try:
-        vendor = mongo.db.vendors.find_one({'clerk_user_id': user_id})
+        # Get or create vendor for this user
+        vendor = get_or_create_vendor(user_id)
         if not vendor:
             return jsonify({
                 'totalOrders': 0,
@@ -367,22 +501,77 @@ def get_dashboard_stats(user_id):
             })
 
         vendor_id = str(vendor['_id'])
+        
+        # Calculate today's date range (dynamic - uses current system date)
+        today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        today_end = today_start + timedelta(days=1)
 
-        # Get stats (mock data for now)
+        # Real database calculations
         total_orders = mongo.db.orders.count_documents({'vendor_id': vendor_id})
         total_menus = mongo.db.menus.count_documents({'vendor_id': vendor_id})
         
+        # Calculate total revenue from all orders
+        total_revenue_pipeline = [
+            {'$match': {'vendor_id': vendor_id}},
+            {'$group': {'_id': None, 'total': {'$sum': '$totalAmount'}}}
+        ]
+        total_revenue_result = list(mongo.db.orders.aggregate(total_revenue_pipeline))
+        total_revenue = total_revenue_result[0]['total'] if total_revenue_result else 0
+        
+        # Calculate unique customers
+        unique_customers = len(mongo.db.orders.distinct('customerEmail', {'vendor_id': vendor_id}))
+        
+        # Calculate active subscriptions
+        active_subscriptions_pipeline = [
+            {'$match': {'vendor_id': vendor_id}},
+            {'$group': {'_id': None, 'total': {'$sum': '$subscriberCount'}}}
+        ]
+        active_subs_result = list(mongo.db.subscriptions.aggregate(active_subscriptions_pipeline))
+        active_subscriptions = active_subs_result[0]['total'] if active_subs_result else 0
+        
+        # Count delivery staff
+        delivery_staff_count = mongo.db.delivery_staff.count_documents({'vendor_id': vendor_id})
+        
+        # Today's revenue
+        today_revenue_pipeline = [
+            {'$match': {
+                'vendor_id': vendor_id,
+                'createdAt': {'$gte': today_start, '$lt': today_end}
+            }},
+            {'$group': {'_id': None, 'total': {'$sum': '$totalAmount'}}}
+        ]
+        today_revenue_result = list(mongo.db.orders.aggregate(today_revenue_pipeline))
+        today_revenue = today_revenue_result[0]['total'] if today_revenue_result else 0
+        
+        # Today's orders count
+        today_orders = mongo.db.orders.count_documents({
+            'vendor_id': vendor_id,
+            'createdAt': {'$gte': today_start, '$lt': today_end}
+        })
+        
+        # Pending orders
+        pending_orders = mongo.db.orders.count_documents({
+            'vendor_id': vendor_id,
+            'status': {'$in': ['pending', 'confirmed', 'preparing', 'ready', 'out_for_delivery']}
+        })
+        
+        # Completed orders
+        completed_orders = mongo.db.orders.count_documents({
+            'vendor_id': vendor_id,
+            'status': 'delivered'
+        })
+        
         stats = {
             'totalOrders': total_orders,
-            'totalRevenue': 25000,  # Mock total revenue
+            'totalRevenue': round(total_revenue, 2),
             'totalMenuItems': total_menus,
-            'totalCustomers': 150,  # Mock total customers
-            'activeSubscriptions': 45,  # Mock active subscriptions
-            'deliveryStaff': 8,  # Mock delivery staff count
-            'todayRevenue': 3200,  # Mock today's revenue
-            'todayOrders': 12,  # Mock today's orders
-            'pendingOrders': 5,  # Mock pending orders
-            'completedOrders': 7  # Mock completed orders
+            'totalCustomers': unique_customers,
+            'activeSubscriptions': active_subscriptions,
+            'deliveryStaff': delivery_staff_count,
+            'todayRevenue': round(today_revenue, 2),
+            'todayOrders': today_orders,
+            'pendingOrders': pending_orders,
+            'completedOrders': completed_orders
         }
 
         return jsonify(stats)
@@ -396,14 +585,60 @@ def get_dashboard_revenue(user_id):
         return jsonify({'error': 'Database not connected'}), 500
 
     try:
-        # Mock revenue data
-        revenue_data = [
-            {'date': '2024-01-01', 'revenue': 1500},
-            {'date': '2024-01-02', 'revenue': 2200},
-            {'date': '2024-01-03', 'revenue': 1800},
-            {'date': '2024-01-04', 'revenue': 2500},
-            {'date': '2024-01-05', 'revenue': 3200}
+        # Get or create vendor for this user
+        vendor = get_or_create_vendor(user_id)
+        if not vendor:
+            return jsonify([])
+        
+        vendor_id = str(vendor['_id'])
+        
+        # Get revenue data for the last 7 days (dynamic - uses current system date)
+        end_date = datetime.now().replace(hour=23, minute=59, second=59, microsecond=999999)
+        start_date = end_date - timedelta(days=6)
+        
+        revenue_pipeline = [
+            {
+                '$match': {
+                    'vendor_id': vendor_id,
+                    'createdAt': {'$gte': start_date, '$lte': end_date}
+                }
+            },
+            {
+                '$group': {
+                    '_id': {
+                        'year': {'$year': '$createdAt'},
+                        'month': {'$month': '$createdAt'},
+                        'day': {'$dayOfMonth': '$createdAt'}
+                    },
+                    'revenue': {'$sum': '$totalAmount'}
+                }
+            },
+            {
+                '$sort': {'_id': 1}
+            }
         ]
+        
+        revenue_results = list(mongo.db.orders.aggregate(revenue_pipeline))
+        
+        # Create a complete date range for the last 7 days
+        revenue_data = []
+        for i in range(7):
+            current_date = start_date + timedelta(days=i)
+            date_str = current_date.strftime('%Y-%m-%d')
+            
+            # Find revenue for this date
+            day_revenue = 0
+            for result in revenue_results:
+                result_date = datetime(result['_id']['year'], result['_id']['month'], result['_id']['day'])
+                if result_date.date() == current_date.date():
+                    day_revenue = result['revenue']
+                    break
+            
+            revenue_data.append({
+                'date': date_str,
+                'revenue': round(day_revenue, 2)
+            })
+        
         return jsonify(revenue_data)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -415,13 +650,61 @@ def get_dashboard_orders(user_id):
         return jsonify({'error': 'Database not connected'}), 500
 
     try:
-        vendor = mongo.db.vendors.find_one({'clerk_user_id': user_id})
+        # Get or create vendor for this user
+        vendor = get_or_create_vendor(user_id)
         if not vendor:
             return jsonify([])
-
-        # Get recent orders
-        orders = list(mongo.db.orders.find({'vendor_id': str(vendor['_id'])}).limit(10))
-        return jsonify(serialize_doc(orders))
+        
+        vendor_id = str(vendor['_id'])
+        
+        # Get order trend data for the last 7 days (dynamic - uses current system date)
+        end_date = datetime.now().replace(hour=23, minute=59, second=59, microsecond=999999)
+        start_date = end_date - timedelta(days=6)
+        
+        orders_pipeline = [
+            {
+                '$match': {
+                    'vendor_id': vendor_id,
+                    'createdAt': {'$gte': start_date, '$lte': end_date}
+                }
+            },
+            {
+                '$group': {
+                    '_id': {
+                        'year': {'$year': '$createdAt'},
+                        'month': {'$month': '$createdAt'},
+                        'day': {'$dayOfMonth': '$createdAt'}
+                    },
+                    'orders': {'$sum': 1}
+                }
+            },
+            {
+                '$sort': {'_id': 1}
+            }
+        ]
+        
+        orders_results = list(mongo.db.orders.aggregate(orders_pipeline))
+        
+        # Create a complete date range for the last 7 days
+        orders_data = []
+        for i in range(7):
+            current_date = start_date + timedelta(days=i)
+            date_str = current_date.strftime('%Y-%m-%d')
+            
+            # Find orders count for this date
+            day_orders = 0
+            for result in orders_results:
+                result_date = datetime(result['_id']['year'], result['_id']['month'], result['_id']['day'])
+                if result_date.date() == current_date.date():
+                    day_orders = result['orders']
+                    break
+            
+            orders_data.append({
+                'date': date_str,
+                'orders': day_orders
+            })
+        
+        return jsonify(orders_data)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -432,14 +715,51 @@ def get_popular_dishes(user_id):
         return jsonify({'error': 'Database not connected'}), 500
 
     try:
-        # Mock popular dishes data
-        popular_dishes = [
-            {'_id': '1', 'name': 'Butter Chicken', 'orders': 125, 'revenue': 2500, 'price': 320},
-            {'_id': '2', 'name': 'Biryani', 'orders': 98, 'revenue': 1960, 'price': 280},
-            {'_id': '3', 'name': 'Paneer Tikka', 'orders': 87, 'revenue': 1305, 'price': 250},
-            {'_id': '4', 'name': 'Dal Makhani', 'orders': 76, 'revenue': 912, 'price': 180},
-            {'_id': '5', 'name': 'Naan', 'orders': 156, 'revenue': 936, 'price': 45}
+        # Get or create vendor for this user
+        vendor = get_or_create_vendor(user_id)
+        if not vendor:
+            return jsonify([])
+        
+        vendor_id = str(vendor['_id'])
+        
+        # Aggregate popular dishes from actual orders
+        popular_dishes_pipeline = [
+            {
+                '$match': {'vendor_id': vendor_id}
+            },
+            {
+                '$unwind': '$items'
+            },
+            {
+                '$group': {
+                    '_id': '$items.name',
+                    'orders': {'$sum': '$items.quantity'},
+                    'revenue': {'$sum': {'$multiply': ['$items.price', '$items.quantity']}},
+                    'price': {'$first': '$items.price'}
+                }
+            },
+            {
+                '$sort': {'orders': -1}
+            },
+            {
+                '$limit': 5
+            }
         ]
+        
+        popular_dishes_results = list(mongo.db.orders.aggregate(popular_dishes_pipeline))
+        
+        # Format the results
+        popular_dishes = []
+        for i, dish in enumerate(popular_dishes_results):
+            popular_dishes.append({
+                '_id': str(i + 1),
+                'name': dish['_id'],
+                'orders': dish['orders'],
+                'revenue': round(dish['revenue'], 2),
+                'price': round(dish['price'], 2)
+            })
+        
+        # If no real data, return empty array instead of mock data
         return jsonify(popular_dishes)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -645,6 +965,172 @@ def get_location(sid):
             return jsonify({'error': 'Not found'}), 404
         loc = staff.get('location', {})
         return jsonify({'staffId': sid, 'location': loc})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# External App Integration APIs
+# These endpoints allow external apps to integrate with the dashboard
+
+@app.route('/api/external/orders', methods=['POST'])
+def create_order_external():
+    """Create a new order from external app - No authentication required for integration"""
+    if not mongo:
+        return jsonify({'error': 'Database not connected'}), 500
+    
+    try:
+        data = request.json or {}
+        
+        # Validate required fields
+        required_fields = ['vendor_id', 'customerName', 'customerPhone', 'items', 'totalAmount']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({'error': f'Missing required field: {field}'}), 400
+        
+        # Create order document
+        order = {
+            'vendor_id': data['vendor_id'],
+            'customerName': data['customerName'],
+            'customerPhone': data['customerPhone'],
+            'customerEmail': data.get('customerEmail', f"{data['customerPhone']}@customer.com"),
+            'items': data['items'],
+            'totalAmount': float(data['totalAmount']),
+            'status': data.get('status', 'pending'),
+            'deliveryAddress': data.get('deliveryAddress', 'Not provided'),
+            'createdAt': datetime.utcnow(),
+            'updatedAt': datetime.utcnow()
+        }
+        
+        # Insert order
+        result = mongo.db.orders.insert_one(order)
+        order['_id'] = str(result.inserted_id)
+        
+        return jsonify({
+            'success': True,
+            'message': 'Order created successfully',
+            'order_id': str(result.inserted_id),
+            'order': serialize_doc(order)
+        }), 201
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/external/orders/<order_id>/status', methods=['PUT'])
+def update_order_status_external(order_id):
+    """Update order status from external app"""
+    if not mongo:
+        return jsonify({'error': 'Database not connected'}), 500
+    
+    try:
+        data = request.json or {}
+        new_status = data.get('status')
+        
+        if not new_status:
+            return jsonify({'error': 'Status is required'}), 400
+        
+        valid_statuses = ['pending', 'confirmed', 'preparing', 'ready', 'out_for_delivery', 'delivered', 'cancelled']
+        if new_status not in valid_statuses:
+            return jsonify({'error': f'Invalid status. Must be one of: {valid_statuses}'}), 400
+        
+        # Update order
+        result = mongo.db.orders.update_one(
+            {'_id': to_object_id(order_id)},
+            {
+                '$set': {
+                    'status': new_status,
+                    'updatedAt': datetime.utcnow()
+                }
+            }
+        )
+        
+        if result.matched_count == 0:
+            return jsonify({'error': 'Order not found'}), 404
+        
+        return jsonify({
+            'success': True,
+            'message': 'Order status updated successfully'
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/external/vendors/<vendor_id>/stats', methods=['GET'])
+def get_vendor_stats_external(vendor_id):
+    """Get vendor stats for external app integration"""
+    if not mongo:
+        return jsonify({'error': 'Database not connected'}), 500
+    
+    try:
+        # Calculate today's date range
+        today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        today_end = today_start + timedelta(days=1)
+        
+        # Real database calculations
+        total_orders = mongo.db.orders.count_documents({'vendor_id': vendor_id})
+        total_menus = mongo.db.menus.count_documents({'vendor_id': vendor_id})
+        
+        # Calculate total revenue
+        total_revenue_pipeline = [
+            {'$match': {'vendor_id': vendor_id}},
+            {'$group': {'_id': None, 'total': {'$sum': '$totalAmount'}}}
+        ]
+        total_revenue_result = list(mongo.db.orders.aggregate(total_revenue_pipeline))
+        total_revenue = total_revenue_result[0]['total'] if total_revenue_result else 0
+        
+        # Today's stats
+        today_revenue_pipeline = [
+            {'$match': {
+                'vendor_id': vendor_id,
+                'createdAt': {'$gte': today_start, '$lt': today_end}
+            }},
+            {'$group': {'_id': None, 'total': {'$sum': '$totalAmount'}}}
+        ]
+        today_revenue_result = list(mongo.db.orders.aggregate(today_revenue_pipeline))
+        today_revenue = today_revenue_result[0]['total'] if today_revenue_result else 0
+        
+        today_orders = mongo.db.orders.count_documents({
+            'vendor_id': vendor_id,
+            'createdAt': {'$gte': today_start, '$lt': today_end}
+        })
+        
+        pending_orders = mongo.db.orders.count_documents({
+            'vendor_id': vendor_id,
+            'status': {'$in': ['pending', 'confirmed', 'preparing', 'ready', 'out_for_delivery']}
+        })
+        
+        completed_orders = mongo.db.orders.count_documents({
+            'vendor_id': vendor_id,
+            'status': 'delivered'
+        })
+        
+        stats = {
+            'totalOrders': total_orders,
+            'totalRevenue': round(total_revenue, 2),
+            'totalMenuItems': total_menus,
+            'todayRevenue': round(today_revenue, 2),
+            'todayOrders': today_orders,
+            'pendingOrders': pending_orders,
+            'completedOrders': completed_orders
+        }
+        
+        return jsonify(stats)
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/external/vendors', methods=['GET'])
+def list_vendors_external():
+    """List all vendors for external app integration"""
+    if not mongo:
+        return jsonify({'error': 'Database not connected'}), 500
+    
+    try:
+        vendors = list(mongo.db.vendors.find({}, {
+            'businessName': 1,
+            'email': 1,
+            'phone': 1,
+            'address': 1
+        }))
+        return jsonify(serialize_doc(vendors))
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

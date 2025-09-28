@@ -17,47 +17,50 @@ export const AuthProvider = ({ children }) => {
   const [vendor, setVendor] = useState(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    const fetchVendor = async () => {
-      if (!userId) {
-        setLoading(false)
-        return
-      }
+  const fetchVendor = async () => {
+    if (!userId) {
+      setLoading(false)
+      return
+    }
 
+    try {
+      const token = await getToken()
+      const response = await api.get('/vendors/me', {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      })
+      setVendor(response.data)
+      console.log('Vendor data updated:', response.data)
+    } catch (error) {
+      console.error('Error fetching vendor:', error)
+      // If vendor doesn't exist, create one
       try {
         const token = await getToken()
-        const response = await api.get('/vendors/me', {
+        const response = await api.post('/vendors', {}, {
           headers: {
             Authorization: `Bearer ${token}`
           }
         })
         setVendor(response.data)
-      } catch (error) {
-        console.error('Error fetching vendor:', error)
-        // If vendor doesn't exist, create one
-        try {
-          const token = await getToken()
-          const response = await api.post('/vendors', {}, {
-            headers: {
-              Authorization: `Bearer ${token}`
-            }
-          })
-          setVendor(response.data)
-        } catch (createError) {
-          console.error('Error creating vendor:', createError)
-        }
-      } finally {
-        setLoading(false)
+        console.log('New vendor created:', response.data)
+      } catch (createError) {
+        console.error('Error creating vendor:', createError)
       }
+    } finally {
+      setLoading(false)
     }
+  }
 
+  useEffect(() => {
     fetchVendor()
   }, [userId, getToken])
 
   const value = {
     vendor,
     setVendor,
-    loading
+    loading,
+    refreshVendor: fetchVendor
   }
 
   return (

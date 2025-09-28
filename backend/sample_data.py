@@ -18,13 +18,13 @@ def create_sample_data():
         
         # Create sample vendor
         vendor_data = {
-            'clerk_user_id': 'sample_user_123',
+            'clerk_user_id': 'mock_user_id_123',
             'businessName': 'Delicious Tiffin Co.',
             'email': 'vendor@delicioustiffin.com',
             'phone': '+91-9876543210',
             'address': '123 Main Street, Mumbai, Maharashtra 400001',
-            'createdAt': datetime.utcnow(),
-            'updatedAt': datetime.utcnow()
+            'createdAt': datetime(2024, 8, 1),
+            'updatedAt': datetime(2024, 9, 28)
         }
         vendor_result = mongo.db.vendors.insert_one(vendor_data)
         vendor_id = str(vendor_result.inserted_id)
@@ -39,8 +39,8 @@ def create_sample_data():
                 'category': 'main',
                 'availability': 'daily',
                 'isPublished': True,
-                'createdAt': datetime.utcnow(),
-                'updatedAt': datetime.utcnow()
+                'createdAt': datetime(2024, 8, 15),
+                'updatedAt': datetime(2024, 9, 28)
             },
             {
                 'vendor_id': vendor_id,
@@ -50,8 +50,8 @@ def create_sample_data():
                 'category': 'main',
                 'availability': 'daily',
                 'isPublished': True,
-                'createdAt': datetime.utcnow(),
-                'updatedAt': datetime.utcnow()
+                'createdAt': datetime(2024, 8, 15),
+                'updatedAt': datetime(2024, 9, 28)
             },
             {
                 'vendor_id': vendor_id,
@@ -61,8 +61,8 @@ def create_sample_data():
                 'category': 'main',
                 'availability': 'daily',
                 'isPublished': True,
-                'createdAt': datetime.utcnow(),
-                'updatedAt': datetime.utcnow()
+                'createdAt': datetime(2024, 8, 15),
+                'updatedAt': datetime(2024, 9, 28)
             },
             {
                 'vendor_id': vendor_id,
@@ -72,8 +72,8 @@ def create_sample_data():
                 'category': 'main',
                 'availability': 'daily',
                 'isPublished': True,
-                'createdAt': datetime.utcnow(),
-                'updatedAt': datetime.utcnow()
+                'createdAt': datetime(2024, 8, 15),
+                'updatedAt': datetime(2024, 9, 28)
             },
             {
                 'vendor_id': vendor_id,
@@ -83,8 +83,8 @@ def create_sample_data():
                 'category': 'beverage',
                 'availability': 'daily',
                 'isPublished': True,
-                'createdAt': datetime.utcnow(),
-                'updatedAt': datetime.utcnow()
+                'createdAt': datetime(2024, 8, 15),
+                'updatedAt': datetime(2024, 9, 28)
             }
         ]
         
@@ -102,8 +102,8 @@ def create_sample_data():
                 'features': ['Daily lunch', 'Free delivery', 'Flexible timing'],
                 'isActive': True,
                 'subscriberCount': 15,
-                'createdAt': datetime.utcnow(),
-                'updatedAt': datetime.utcnow()
+                'createdAt': datetime(2024, 8, 20),
+                'updatedAt': datetime(2024, 9, 28)
             },
             {
                 'vendor_id': vendor_id,
@@ -114,8 +114,8 @@ def create_sample_data():
                 'features': ['Lunch & dinner', 'Free delivery', 'Priority support', 'Custom menu'],
                 'isActive': True,
                 'subscriberCount': 8,
-                'createdAt': datetime.utcnow(),
-                'updatedAt': datetime.utcnow()
+                'createdAt': datetime(2024, 8, 20),
+                'updatedAt': datetime(2024, 9, 28)
             },
             {
                 'vendor_id': vendor_id,
@@ -126,8 +126,8 @@ def create_sample_data():
                 'features': ['Weekly meals', 'Family portions', 'Free delivery'],
                 'isActive': True,
                 'subscriberCount': 12,
-                'createdAt': datetime.utcnow(),
-                'updatedAt': datetime.utcnow()
+                'createdAt': datetime(2024, 8, 20),
+                'updatedAt': datetime(2024, 9, 28)
             }
         ]
         
@@ -146,8 +146,8 @@ def create_sample_data():
                 'assignedZone': 'Zone A - North',
                 'isActive': True,
                 'assignedOrders': 25,
-                'createdAt': datetime.utcnow(),
-                'updatedAt': datetime.utcnow()
+                'createdAt': datetime(2024, 8, 25),
+                'updatedAt': datetime(2024, 9, 28)
             },
             {
                 'vendor_id': vendor_id,
@@ -160,8 +160,8 @@ def create_sample_data():
                 'assignedZone': 'Zone B - South',
                 'isActive': True,
                 'assignedOrders': 18,
-                'createdAt': datetime.utcnow(),
-                'updatedAt': datetime.utcnow()
+                'createdAt': datetime(2024, 8, 25),
+                'updatedAt': datetime(2024, 9, 28)
             },
             {
                 'vendor_id': vendor_id,
@@ -174,8 +174,8 @@ def create_sample_data():
                 'assignedZone': 'Zone C - East',
                 'isActive': True,
                 'assignedOrders': 12,
-                'createdAt': datetime.utcnow(),
-                'updatedAt': datetime.utcnow()
+                'createdAt': datetime(2024, 8, 25),
+                'updatedAt': datetime(2024, 9, 28)
             }
         ]
         
@@ -188,9 +188,10 @@ def create_sample_data():
         
         orders = []
         for i in range(50):
-            # Random date within last 30 days
+            # Random date within last 30 days from current date (2024-09-28)
             days_ago = random.randint(0, 30)
-            order_date = datetime.utcnow() - timedelta(days=days_ago)
+            current_date = datetime(2024, 9, 28)
+            order_date = current_date - timedelta(days=days_ago)
             
             # Random menu items
             num_items = random.randint(1, 3)
