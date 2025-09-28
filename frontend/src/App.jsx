@@ -9,6 +9,8 @@ import Orders from './pages/Orders'
 import Subscriptions from './pages/Subscriptions'
 import DeliveryStaff from './pages/DeliveryStaff'
 import DeliveryPortal from './pages/DeliveryPortal'
+import ProfileSettings from './pages/ProfileSettings'
+import PaymentSettings from './pages/PaymentSettings'
 import { AuthProvider } from './contexts/AuthContext'
 
 function App() {
@@ -40,6 +42,8 @@ function App() {
           <Route path="/orders" element={<Layout><Orders /></Layout>} />
           <Route path="/subscriptions" element={<Layout><Subscriptions /></Layout>} />
           <Route path="/delivery-staff" element={<Layout><DeliveryStaff /></Layout>} />
+          <Route path="/settings/profile" element={<Layout><ProfileSettings /></Layout>} />
+          <Route path="/settings/payment" element={<Layout><PaymentSettings /></Layout>} />
         </Routes>
         <Toaster position="top-right" />
       </div>

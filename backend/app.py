@@ -371,6 +371,182 @@ def create_vendor(user_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+# Update vendor profile
+@app.route('/api/vendors/me', methods=['PUT'])
+@verify_clerk_token
+def update_vendor_profile(user_id):
+    if not mongo:
+        return jsonify({'error': 'Database not connected'}), 500
+
+    try:
+        vendor = mongo.db.vendors.find_one({'clerk_user_id': user_id})
+        if not vendor:
+            return jsonify({'error': 'Vendor not found'}), 404
+
+        data = request.json or {}
+        update_fields = {}
+        
+        # Allowed fields for profile update
+        allowed_fields = ['businessName', 'ownerName', 'email', 'phone', 'address', 'description']
+        for field in allowed_fields:
+            if field in data:
+                update_fields[field] = data[field]
+        
+        update_fields['updatedAt'] = datetime.utcnow()
+
+        # Update vendor document
+        mongo.db.vendors.update_one(
+            {'_id': vendor['_id']}, 
+            {'$set': update_fields}
+        )
+        
+        # Return updated vendor
+        updated_vendor = mongo.db.vendors.find_one({'_id': vendor['_id']})
+        return jsonify(serialize_doc(updated_vendor))
+    except Exception as e:
+        print(f"Error updating vendor profile: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# Update payment settings
+@app.route('/api/vendors/payment-settings', methods=['PUT'])
+@verify_clerk_token
+def update_payment_settings(user_id):
+    if not mongo:
+        return jsonify({'error': 'Database not connected'}), 500
+
+    try:
+        vendor = mongo.db.vendors.find_one({'clerk_user_id': user_id})
+        if not vendor:
+            return jsonify({'error': 'Vendor not found'}), 404
+
+        data = request.json or {}
+        update_fields = {}
+        
+        # Allowed fields for payment settings
+        allowed_fields = ['upiId', 'qrCodeUrl', 'paymentEnabled']
+        for field in allowed_fields:
+            if field in data:
+                update_fields[field] = data[field]
+        
+        update_fields['updatedAt'] = datetime.utcnow()
+
+        # Update vendor document
+        mongo.db.vendors.update_one(
+            {'_id': vendor['_id']}, 
+            {'$set': update_fields}
+        )
+        
+        # Return updated vendor
+        updated_vendor = mongo.db.vendors.find_one({'_id': vendor['_id']})
+        return jsonify(serialize_doc(updated_vendor))
+    except Exception as e:
+        print(f"Error updating payment settings: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# Upload QR code (placeholder - in production you'd use cloud storage)
+@app.route('/api/vendors/upload-qr', methods=['POST'])
+@verify_clerk_token
+def upload_qr_code(user_id):
+    if not mongo:
+        return jsonify({'error': 'Database not connected'}), 500
+
+    try:
+        vendor = mongo.db.vendors.find_one({'clerk_user_id': user_id})
+        if not vendor:
+            return jsonify({'error': 'Vendor not found'}), 404
+
+        # Check if file is present
+        if 'qrCode' not in request.files:
+            return jsonify({'error': 'No file uploaded'}), 400
+        
+        file = request.files['qrCode']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+
+        # Validate file type
+        allowed_extensions = {'png', 'jpg', 'jpeg', 'gif'}
+        if '.' not in file.filename or file.filename.rsplit('.', 1)[1].lower() not in allowed_extensions:
+            return jsonify({'error': 'Invalid file type. Only PNG, JPG, JPEG, and GIF are allowed'}), 400
+
+        # For now, we'll return a placeholder URL
+        # In production, you would:
+        # 1. Save the file to cloud storage (AWS S3, Google Cloud Storage, etc.)
+        # 2. Return the actual URL
+        placeholder_url = f"https://placeholder-qr-storage.com/vendor_{vendor['_id']}_qr.{file.filename.rsplit('.', 1)[1].lower()}"
+        
+        return jsonify({
+            'success': True,
+            'qrCodeUrl': placeholder_url,
+            'message': 'QR code uploaded successfully'
+        })
+    except Exception as e:
+        print(f"Error uploading QR code: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# Upload profile picture (stores as base64 for development)
+@app.route('/api/vendors/upload-profile-picture', methods=['POST'])
+@verify_clerk_token
+def upload_profile_picture(user_id):
+    if not mongo:
+        return jsonify({'error': 'Database not connected'}), 500
+
+    try:
+        vendor = mongo.db.vendors.find_one({'clerk_user_id': user_id})
+        if not vendor:
+            return jsonify({'error': 'Vendor not found'}), 404
+
+        # Check if file is present
+        if 'profilePicture' not in request.files:
+            return jsonify({'error': 'No file uploaded'}), 400
+        
+        file = request.files['profilePicture']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+
+        # Validate file type
+        allowed_extensions = {'png', 'jpg', 'jpeg', 'gif'}
+        if '.' not in file.filename or file.filename.rsplit('.', 1)[1].lower() not in allowed_extensions:
+            return jsonify({'error': 'Invalid file type. Only PNG, JPG, JPEG, and GIF are allowed'}), 400
+
+        # Validate file size (5MB max)
+        file.seek(0, 2)  # Seek to end of file
+        file_size = file.tell()
+        file.seek(0)  # Reset to beginning
+        
+        if file_size > 5 * 1024 * 1024:  # 5MB
+            return jsonify({'error': 'File size must be less than 5MB'}), 400
+
+        # Read file content and convert to base64
+        import base64
+        file_content = file.read()
+        file_extension = file.filename.rsplit('.', 1)[1].lower()
+        
+        # Create base64 data URL
+        base64_string = base64.b64encode(file_content).decode('utf-8')
+        data_url = f"data:image/{file_extension};base64,{base64_string}"
+        
+        # Update vendor document with base64 image data
+        mongo.db.vendors.update_one(
+            {'_id': vendor['_id']}, 
+            {
+                '$set': {
+                    'profilePicture': data_url,
+                    'updatedAt': datetime.utcnow()
+                }
+            }
+        )
+        
+        print(f"Profile picture updated for vendor {vendor['_id']} with {len(data_url)} characters")
+        
+        return jsonify({
+            'success': True,
+            'profilePictureUrl': data_url,
+            'message': 'Profile picture uploaded successfully'
+        })
+    except Exception as e:
+        print(f"Error uploading profile picture: {e}")
+        return jsonify({'error': str(e)}), 500
+
 # Menu routes
 @app.route('/api/menus', methods=['GET'])
 @verify_clerk_token

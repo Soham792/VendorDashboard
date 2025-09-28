@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useAuth, UserButton, useUser } from '@clerk/clerk-react'
 import { useAuthContext } from '../contexts/AuthContext'
+import SettingsDropdown from './SettingsDropdown'
 import { 
   LayoutDashboard, 
   Menu, 
@@ -41,9 +42,9 @@ const Layout = ({ children }) => {
           <div className="flex h-20 items-center justify-between px-6">
             <div className="flex items-center gap-3">
               {/* Mobile Profile Picture */}
-              {user?.imageUrl || vendor?.profilePicture ? (
+              {vendor?.profilePicture || user?.imageUrl ? (
                 <img 
-                  src={user?.imageUrl || vendor?.profilePicture} 
+                  src={vendor?.profilePicture || user?.imageUrl} 
                   alt="Profile" 
                   className="h-10 w-10 rounded-xl shadow-lg object-cover border-2 border-white"
                 />
@@ -133,6 +134,9 @@ const Layout = ({ children }) => {
             </button>
             
             <div className="flex items-center gap-6">
+              {/* Settings Dropdown */}
+              <SettingsDropdown />
+              
               <div className="flex items-center gap-4">
                 {/* Clerk UserButton (circular profile picture) */}
                 <UserButton 
