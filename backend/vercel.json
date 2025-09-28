@@ -1,10 +1,10 @@
 {
   "version": 2,
-  "name": "vendor-dashboard-backend",
+  "name": "vendor-operations-backend",
   "builds": [
     {
       "src": "app.py",
-      "use": "@vercel/python"
+      "use": "@vercel/python@3.1.0"
     }
   ],
   "routes": [
@@ -16,10 +16,5 @@
   "env": {
     "PYTHONPATH": ".",
     "FLASK_ENV": "production"
-  },
-  "functions": {
-    "app.py": {
-      "runtime": "python3.9"
-    }
   }
 }
