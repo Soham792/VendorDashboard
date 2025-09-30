@@ -17,9 +17,20 @@ from werkzeug.security import generate_password_hash, check_password_hash
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app, origins=['http://localhost:3000', 'http://127.0.0.1:3000'], 
+# Get frontend URL from environment variable
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:3000')
+
+# Configure CORS for both development and production
+cors_origins = [
+    'http://localhost:3000', 
+    'http://127.0.0.1:3000',
+    FRONTEND_URL  # Add production frontend URL
+]
+
+CORS(app, origins=cors_origins, 
      allow_headers=['Content-Type', 'Authorization'], 
-     methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
+     methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+     supports_credentials=True)
 
 # MongoDB configuration with URL-encoded password
 # The password 'Manglam@529' needs URL encoding for the @ symbol
@@ -1310,5 +1321,5 @@ def list_vendors_external():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-if __name__ == '__main__':
-    app.run(debug=True, host='127.0.0.1', port=5000)
+# For Vercel deployment, we don't need the development server
+# The app is imported by api/index.py
