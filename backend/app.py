@@ -27,10 +27,32 @@ cors_origins = [
     FRONTEND_URL  # Add production frontend URL
 ]
 
-CORS(app, origins=cors_origins, 
-     allow_headers=['Content-Type', 'Authorization'], 
+CORS(app, 
+     origins=cors_origins, 
+     allow_headers=['Content-Type', 'Authorization', 'X-Requested-With'],
      methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-     supports_credentials=True)
+     supports_credentials=True,
+     expose_headers=['Content-Type', 'Authorization'])
+
+# Add explicit OPTIONS handler for all routes
+@app.before_request
+def handle_preflight():
+    if request.method == "OPTIONS":
+        response = jsonify({'status': 'ok'})
+        response.headers.add("Access-Control-Allow-Origin", FRONTEND_URL)
+        response.headers.add('Access-Control-Allow-Headers', "Content-Type,Authorization,X-Requested-With")
+        response.headers.add('Access-Control-Allow-Methods', "GET,PUT,POST,DELETE,OPTIONS")
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+
+# Add CORS headers to all responses
+@app.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', FRONTEND_URL)
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    response.headers.add('Access-Control-Allow-Credentials', 'true')
+    return response
 
 # MongoDB configuration with URL-encoded password
 # The password 'Manglam@529' needs URL encoding for the @ symbol
@@ -234,6 +256,27 @@ def test_api():
         'mongo_connected': mongo is not None,
         'timestamp': datetime.utcnow().isoformat()
     })
+
+# CORS test route
+@app.route('/api/cors-test', methods=['GET', 'OPTIONS'])
+def cors_test():
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'preflight ok'})
+    else:
+        response = jsonify({
+            'message': 'CORS test successful!',
+            'origin': request.headers.get('Origin', 'No origin header'),
+            'method': request.method,
+            'timestamp': datetime.utcnow().isoformat()
+        })
+    
+    # Explicit CORS headers for this test endpoint
+    response.headers['Access-Control-Allow-Origin'] = FRONTEND_URL
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+    response.headers['Access-Control-Allow-Credentials'] = 'true'
+    
+    return response
 
 # Test auth route
 @app.route('/api/test-auth', methods=['GET'])
