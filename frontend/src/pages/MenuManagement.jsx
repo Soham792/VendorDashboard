@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import api from '../utils/api'
-import { Plus, Edit, Trash2, Eye, EyeOff, Calendar } from 'lucide-react'
+import { Plus, Edit, Trash2, Eye, EyeOff, Calendar, Image as ImageIcon, Loader } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { generateFoodImage, validateImage } from '../utils/imageGeneration'
 
 const MenuManagement = () => {
   const { getToken } = useAuth()
@@ -19,8 +20,11 @@ const MenuManagement = () => {
     availability: 'daily',
     startDate: '',
     endDate: '',
-    isPublished: false
+    isPublished: false,
+    imageUrl: ''
   })
+  const [generatingImage, setGeneratingImage] = useState(false)
+  const [imagePreview, setImagePreview] = useState('')
 
   const categories = [
     { value: 'main', label: 'Main Course' },
@@ -61,29 +65,53 @@ const MenuManagement = () => {
       const url = editingMenu ? `/menus/${editingMenu._id}` : '/menus'
       const method = editingMenu ? 'put' : 'post'
 
-      await api[method](url, formData, {
+      // If no image is set and we're creating a new menu, generate one
+      let finalFormData = { ...formData }
+      if (!editingMenu && !formData.imageUrl && formData.name && formData.description) {
+        setGeneratingImage(true)
+        try {
+          const generatedImage = await generateFoodImage(formData.name, formData.description)
+          finalFormData.imageUrl = generatedImage
+          setImagePreview(generatedImage)
+        } catch (error) {
+          console.error('Error generating image:', error)
+          toast.error('Failed to generate image, but menu will be created without image')
+        } finally {
+          setGeneratingImage(false)
+        }
+      }
+
+      await api[method](url, finalFormData, {
         headers: { Authorization: `Bearer ${token}` }
       })
 
       toast.success(editingMenu ? 'Menu updated successfully' : 'Menu created successfully')
       setShowModal(false)
       setEditingMenu(null)
-      setFormData({
-        name: '',
-        description: '',
-        price: '',
-        category: 'main',
-        mealType: 'breakfast',
-        availability: 'daily',
-        startDate: '',
-        endDate: '',
-        isPublished: false
-      })
+      resetForm()
       fetchMenus()
     } catch (error) {
       console.error('Error saving menu:', error)
       toast.error('Failed to save menu')
+      setGeneratingImage(false)
     }
+  }
+
+  const resetForm = () => {
+    setFormData({
+      name: '',
+      description: '',
+      price: '',
+      category: 'main',
+      mealType: 'breakfast',
+      availability: 'daily',
+      startDate: '',
+      endDate: '',
+      isPublished: false,
+      imageUrl: ''
+    })
+    setImagePreview('')
+    setGeneratingImage(false)
   }
 
   const handleEdit = (menu) => {
@@ -97,9 +125,31 @@ const MenuManagement = () => {
       availability: menu.availability,
       startDate: menu.startDate || '',
       endDate: menu.endDate || '',
-      isPublished: menu.isPublished
+      isPublished: menu.isPublished,
+      imageUrl: menu.imageUrl || ''
     })
+    setImagePreview(menu.imageUrl || '')
     setShowModal(true)
+  }
+
+  const handleGenerateImage = async () => {
+    if (!formData.name || !formData.description) {
+      toast.error('Please enter dish name and description first')
+      return
+    }
+
+    setGeneratingImage(true)
+    try {
+      const generatedImage = await generateFoodImage(formData.name, formData.description)
+      setFormData({ ...formData, imageUrl: generatedImage })
+      setImagePreview(generatedImage)
+      toast.success('Image generated successfully!')
+    } catch (error) {
+      console.error('Error generating image:', error)
+      toast.error('Failed to generate image')
+    } finally {
+      setGeneratingImage(false)
+    }
   }
 
   const handleDelete = async (menuId) => {
@@ -175,6 +225,19 @@ const MenuManagement = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             {menus.filter(m => (m.mealType || 'breakfast') === section).map((menu) => (
               <div key={menu._id} className="card">
+                {/* Image Section */}
+                {menu.imageUrl && (
+                  <div className="mb-4 rounded-lg overflow-hidden">
+                    <img 
+                      src={menu.imageUrl} 
+                      alt={menu.name}
+                      className="w-full h-48 object-cover hover:scale-105 transition-transform duration-300"
+                      onError={(e) => {
+                        e.target.style.display = 'none'
+                      }}
+                    />
+                  </div>
+                )}
                 <div className="flex justify-between items-start mb-4">
                   <div>
                     <h3 className="text-lg font-semibold text-gray-900">{menu.name}</h3>
@@ -341,6 +404,53 @@ const MenuManagement = () => {
                 </div>
               )}
 
+              {/* Image Generation Section */}
+              <div>
+                <label className="label">Food Image</label>
+                <div className="space-y-3">
+                  {imagePreview && (
+                    <div className="relative">
+                      <img 
+                        src={imagePreview} 
+                        alt="Preview" 
+                        className="w-full h-32 object-cover rounded-lg border"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setImagePreview('')
+                          setFormData({...formData, imageUrl: ''})
+                        }}
+                        className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleGenerateImage}
+                    disabled={generatingImage || !formData.name || !formData.description}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {generatingImage ? (
+                      <>
+                        <Loader className="h-4 w-4 animate-spin" />
+                        Generating Image...
+                      </>
+                    ) : (
+                      <>
+                        <ImageIcon className="h-4 w-4" />
+                        Generate Food Image
+                      </>
+                    )}
+                  </button>
+                  <p className="text-xs text-gray-500">
+                    AI will generate a food image based on dish name and description
+                  </p>
+                </div>
+              </div>
+
               <div className="flex items-center">
                 <input
                   type="checkbox"
@@ -360,24 +470,25 @@ const MenuManagement = () => {
                   onClick={() => {
                     setShowModal(false)
                     setEditingMenu(null)
-                    setFormData({
-                      name: '',
-                      description: '',
-                      price: '',
-                      category: 'main',
-                      mealType: 'breakfast',
-                      availability: 'daily',
-                      startDate: '',
-                      endDate: '',
-                      isPublished: false
-                    })
+                    resetForm()
                   }}
                   className="btn-secondary"
                 >
                   Cancel
                 </button>
-                <button type="submit" className="btn-primary">
-                  {editingMenu ? 'Update' : 'Create'}
+                <button 
+                  type="submit" 
+                  className="btn-primary"
+                  disabled={generatingImage}
+                >
+                  {generatingImage ? (
+                    <>
+                      <Loader className="h-4 w-4 animate-spin mr-2" />
+                      Generating...
+                    </>
+                  ) : (
+                    editingMenu ? 'Update' : 'Create'
+                  )}
                 </button>
               </div>
             </form>

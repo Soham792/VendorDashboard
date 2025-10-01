@@ -589,6 +589,7 @@ def create_menu(user_id):
             'startDate': request.json.get('startDate', ''),
             'endDate': request.json.get('endDate', ''),
             'isPublished': bool(request.json.get('isPublished', False)),
+            'imageUrl': request.json.get('imageUrl', ''),  # AI-generated food image
             'createdAt': datetime.utcnow(),
             'updatedAt': datetime.utcnow()
         }
@@ -626,7 +627,7 @@ def update_or_delete_menu(user_id, menu_id):
 
         # PUT
         update_fields = {}
-        allowed_fields = ['name', 'description', 'price', 'category', 'mealType', 'availability', 'startDate', 'endDate', 'isPublished']
+        allowed_fields = ['name', 'description', 'price', 'category', 'mealType', 'availability', 'startDate', 'endDate', 'isPublished', 'imageUrl']
         for field in allowed_fields:
             if field in request.json:
                 update_fields[field] = request.json.get(field)
