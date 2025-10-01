@@ -20,12 +20,18 @@ app = Flask(__name__)
 # Get frontend URL from environment variable
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:3000')
 
-# Configure CORS
+# Configure CORS with more permissive settings for production
 CORS(app, 
-     origins=[FRONTEND_URL, 'https://vendor-dashboard-frontend-rho.vercel.app'],
-     allow_headers=['Content-Type', 'Authorization', 'X-Requested-With'],
-     methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-     supports_credentials=True)
+     origins=[
+         FRONTEND_URL, 
+         'https://vendor-dashboard-frontend-rho.vercel.app',
+         'http://localhost:3000',  # For local development
+         'http://127.0.0.1:3000'   # Alternative localhost
+     ],
+     allow_headers=['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+     methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'HEAD'],
+     supports_credentials=True,
+     expose_headers=['Content-Type', 'Authorization'])
 
 # MongoDB configuration - use environment variable
 mongo_uri = os.getenv('MONGODB_URI')
@@ -47,6 +53,37 @@ except Exception as e:
 CLERK_SECRET_KEY = os.getenv('CLERK_SECRET_KEY')
 STAFF_JWT_SECRET = os.getenv('STAFF_JWT_SECRET', 'dev_staff_secret_change_me')
 STAFF_JWT_EXPIRES_MIN = int(os.getenv('STAFF_JWT_EXPIRES_MIN', '1440'))  # 24h default
+
+# Global OPTIONS handler for CORS preflight requests
+@app.before_request
+def handle_preflight():
+    if request.method == "OPTIONS":
+        response = jsonify({'status': 'ok'})
+        response.headers.add("Access-Control-Allow-Origin", "*")
+        response.headers.add('Access-Control-Allow-Headers', "Content-Type,Authorization,X-Requested-With,Accept,Origin")
+        response.headers.add('Access-Control-Allow-Methods', "GET,PUT,POST,DELETE,OPTIONS,HEAD")
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+
+# Global after_request handler to ensure CORS headers on all responses
+@app.after_request
+def after_request(response):
+    origin = request.headers.get('Origin')
+    allowed_origins = [
+        'https://vendor-dashboard-frontend-rho.vercel.app',
+        'http://localhost:3000',
+        'http://127.0.0.1:3000'
+    ]
+    
+    if origin in allowed_origins:
+        response.headers.add('Access-Control-Allow-Origin', origin)
+    else:
+        response.headers.add('Access-Control-Allow-Origin', '*')
+    
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS,HEAD')
+    response.headers.add('Access-Control-Allow-Credentials', 'true')
+    return response
 
 def verify_clerk_token(f):
     @wraps(f)
@@ -1313,6 +1350,19 @@ def list_vendors_external():
         return jsonify(serialize_doc(vendors))
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/test-cors', methods=['GET', 'POST', 'OPTIONS'])
+def test_cors():
+    """Simple endpoint to test CORS configuration"""
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'preflight ok'})
+    
+    return jsonify({
+        'message': 'CORS is working!',
+        'method': request.method,
+        'origin': request.headers.get('Origin', 'No origin header'),
+        'timestamp': datetime.now().isoformat()
+    })
 
 # For Vercel deployment - export the app
 handler = app
