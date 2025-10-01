@@ -4,93 +4,67 @@ from flask_pymongo import PyMongo
 from bson import ObjectId
 from datetime import datetime, timedelta
 import os
-from dotenv import load_dotenv
-import jwt
-import requests
 from functools import wraps
-import urllib.parse
-import secrets
-import string
-from werkzeug.security import generate_password_hash, check_password_hash
+import base64
+import json
+import hashlib
 
-# Load environment variables
-load_dotenv()
+# DO NOT load dotenv in production - Vercel handles env vars
+# load_dotenv()
 
 app = Flask(__name__)
 
-# Get frontend URL from environment variable
-FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:3000')
-
-# Configure CORS with more permissive settings for production
+# CORS Configuration - Allow all origins for now
 CORS(app,
-     origins=[
-         FRONTEND_URL,
-         'https://vendor-dashboard-frontend-rho.vercel.app',
-         'http://localhost:3000',
-         'http://127.0.0.1:3000'
-     ],
+     resources={r"/api/*": {"origins": "*"}},
      allow_headers=['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
      methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'HEAD'],
      supports_credentials=True,
-     expose_headers=['Content-Type', 'Authorization'])
+     max_age=3600)
 
-# MongoDB configuration
-mongo_uri = os.getenv('MONGODB_URI')
-if not mongo_uri:
-    raise ValueError('MONGODB_URI environment variable is required')
-
-app.config['MONGO_URI'] = mongo_uri
-
-# Initialize MongoDB with error handling
+# MongoDB configuration with better error handling
+mongo = None
 try:
-    mongo = PyMongo(app)
-    print("Connected to MongoDB successfully!")
+    mongo_uri = os.environ.get('MONGODB_URI')
+    if mongo_uri:
+        app.config['MONGO_URI'] = mongo_uri
+        mongo = PyMongo(app)
+        print("✓ MongoDB connected")
+    else:
+        print("⚠ MONGODB_URI not set - running without database")
 except Exception as e:
-    print(f"MongoDB connection error: {e}")
+    print(f"⚠ MongoDB error: {e}")
     mongo = None
 
 # Clerk configuration
-CLERK_SECRET_KEY = os.getenv('CLERK_SECRET_KEY')
-STAFF_JWT_SECRET = os.getenv('STAFF_JWT_SECRET', 'dev_staff_secret_change_me')
-STAFF_JWT_EXPIRES_MIN = int(os.getenv('STAFF_JWT_EXPIRES_MIN', '1440'))
+CLERK_SECRET_KEY = os.environ.get('CLERK_SECRET_KEY', '')
 
-# FIXED: Improved OPTIONS handler for CORS preflight requests
+# CRITICAL: Handle OPTIONS before any other middleware
 @app.before_request
 def handle_preflight():
     if request.method == "OPTIONS":
-        response = jsonify({'status': 'ok'})
-        response.headers.add("Access-Control-Allow-Origin", "*")
-        response.headers.add('Access-Control-Allow-Headers', "Content-Type,Authorization,X-Requested-With,Accept,Origin")
-        response.headers.add('Access-Control-Allow-Methods', "GET,PUT,POST,DELETE,OPTIONS,HEAD")
-        response.headers.add('Access-Control-Allow-Credentials', 'true')
-        response.status_code = 200
-        return response
+        response = app.make_response("")
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization,X-Requested-With,Accept,Origin"
+        response.headers["Access-Control-Allow-Methods"] = "GET,PUT,POST,DELETE,OPTIONS,HEAD"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Max-Age"] = "3600"
+        return response, 200
 
-# FIXED: Improved after_request handler
 @app.after_request
 def after_request(response):
-    origin = request.headers.get('Origin')
-    allowed_origins = [
-        'https://vendor-dashboard-frontend-rho.vercel.app',
-        'http://localhost:3000',
-        'http://127.0.0.1:3000'
-    ]
-    
-    if origin in allowed_origins:
-        response.headers.add('Access-Control-Allow-Origin', origin)
-    else:
-        response.headers.add('Access-Control-Allow-Origin', '*')
-    
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin')
-    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS,HEAD')
-    response.headers.add('Access-Control-Allow-Credentials', 'true')
+    origin = request.headers.get('Origin', '*')
+    response.headers['Access-Control-Allow-Origin'] = origin
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type,Authorization,X-Requested-With,Accept,Origin'
+    response.headers['Access-Control-Allow-Methods'] = 'GET,PUT,POST,DELETE,OPTIONS,HEAD'
+    response.headers['Access-Control-Allow-Credentials'] = 'true'
     return response
 
 def verify_clerk_token(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if request.method == 'OPTIONS':
-            return jsonify({'ok': True})
+            return '', 200
         
         token = None
         if 'Authorization' in request.headers:
@@ -106,8 +80,6 @@ def verify_clerk_token(f):
         try:
             user_id = None
             try:
-                import base64
-                import json
                 token_parts = token.split('.')
                 if len(token_parts) == 3:
                     payload = token_parts[1]
@@ -122,10 +94,9 @@ def verify_clerk_token(f):
                     
                     user_email = token_data.get('email') or token_data.get('email_address')
                     user_name = token_data.get('name') or token_data.get('given_name') or token_data.get('first_name')
-                    user_picture = token_data.get('picture') or token_data.get('image_url') or token_data.get('profile_image_url')
+                    user_picture = token_data.get('picture') or token_data.get('image_url')
                     
                     if user_id:
-                        print(f"Successfully decoded user_id from JWT: {user_id}")
                         request.clerk_user_info = {
                             'email': user_email,
                             'name': user_name,
@@ -133,24 +104,21 @@ def verify_clerk_token(f):
                         }
                     else:
                         request.clerk_user_info = {}
-            except Exception as jwt_error:
-                print(f"JWT decoding failed: {jwt_error}")
+            except Exception:
+                pass
             
             if not user_id:
-                import hashlib
                 user_id = hashlib.md5(token.encode()).hexdigest()[:16]
             
             if not user_id:
                 user_id = "default_test_user"
                 
-        except Exception as e:
-            print(f"Authentication error: {e}")
+        except Exception:
             user_id = "error_fallback_user"
         
         return f(user_id, *args, **kwargs)
     return decorated
 
-# Helper functions
 def serialize_doc(doc):
     if doc is None:
         return None
@@ -161,12 +129,6 @@ def serialize_doc(doc):
             doc['_id'] = str(doc['_id'])
         return doc
     return doc
-
-def to_object_id(id_str):
-    try:
-        return ObjectId(id_str)
-    except Exception:
-        return None
 
 def get_or_create_vendor(user_id):
     if not mongo:
@@ -197,7 +159,16 @@ def get_or_create_vendor(user_id):
         return None
 
 # Routes
-@app.route('/api/test', methods=['GET'])
+@app.route('/')
+@app.route('/api')
+def index():
+    return jsonify({
+        'status': 'online',
+        'message': 'Vendor Dashboard API',
+        'mongo_connected': mongo is not None
+    })
+
+@app.route('/api/test')
 def test_api():
     return jsonify({
         'message': 'Backend is running!',
@@ -205,18 +176,7 @@ def test_api():
         'timestamp': datetime.utcnow().isoformat()
     })
 
-@app.route('/api/test-cors', methods=['GET', 'POST', 'OPTIONS'])
-def test_cors():
-    if request.method == 'OPTIONS':
-        return jsonify({'status': 'preflight ok'})
-    return jsonify({
-        'message': 'CORS is working!',
-        'method': request.method,
-        'origin': request.headers.get('Origin', 'No origin header'),
-        'timestamp': datetime.now().isoformat()
-    })
-
-@app.route('/api/vendors/me', methods=['GET'])
+@app.route('/api/vendors/me', methods=['GET', 'OPTIONS'])
 @verify_clerk_token
 def get_vendor_profile(user_id):
     if not mongo:
@@ -230,7 +190,7 @@ def get_vendor_profile(user_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/vendors/me', methods=['PUT'])
+@app.route('/api/vendors/me', methods=['PUT', 'OPTIONS'])
 @verify_clerk_token
 def update_vendor_profile(user_id):
     if not mongo:
@@ -257,7 +217,34 @@ def update_vendor_profile(user_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/subscriptions', methods=['GET'])
+@app.route('/api/vendors', methods=['POST', 'OPTIONS'])
+@verify_clerk_token
+def create_vendor(user_id):
+    if not mongo:
+        return jsonify({'error': 'Database not connected'}), 500
+    
+    try:
+        existing_vendor = mongo.db.vendors.find_one({'clerk_user_id': user_id})
+        if existing_vendor:
+            return jsonify(serialize_doc(existing_vendor))
+        
+        vendor_data = {
+            'clerk_user_id': user_id,
+            'businessName': request.json.get('businessName', 'My Business'),
+            'email': request.json.get('email', ''),
+            'phone': request.json.get('phone', ''),
+            'address': request.json.get('address', ''),
+            'createdAt': datetime.utcnow(),
+            'updatedAt': datetime.utcnow()
+        }
+        
+        result = mongo.db.vendors.insert_one(vendor_data)
+        vendor_data['_id'] = result.inserted_id
+        return jsonify(serialize_doc(vendor_data)), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/subscriptions', methods=['GET', 'OPTIONS'])
 @verify_clerk_token
 def list_subscriptions(user_id):
     if not mongo:
@@ -274,7 +261,7 @@ def list_subscriptions(user_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/subscriptions', methods=['POST'])
+@app.route('/api/subscriptions', methods=['POST', 'OPTIONS'])
 @verify_clerk_token
 def create_subscription(user_id):
     if not mongo:
@@ -305,7 +292,7 @@ def create_subscription(user_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/menus', methods=['GET'])
+@app.route('/api/menus', methods=['GET', 'OPTIONS'])
 @verify_clerk_token
 def get_menus(user_id):
     if not mongo:
@@ -321,7 +308,7 @@ def get_menus(user_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/menus', methods=['POST'])
+@app.route('/api/menus', methods=['POST', 'OPTIONS'])
 @verify_clerk_token
 def create_menu(user_id):
     if not mongo:
@@ -354,7 +341,7 @@ def create_menu(user_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/orders', methods=['GET'])
+@app.route('/api/orders', methods=['GET', 'OPTIONS'])
 @verify_clerk_token
 def get_orders(user_id):
     if not mongo:
@@ -370,7 +357,7 @@ def get_orders(user_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/dashboard/stats', methods=['GET'])
+@app.route('/api/dashboard/stats', methods=['GET', 'OPTIONS'])
 @verify_clerk_token
 def get_dashboard_stats(user_id):
     if not mongo:
@@ -459,7 +446,7 @@ def get_dashboard_stats(user_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/dashboard/revenue', methods=['GET'])
+@app.route('/api/dashboard/revenue', methods=['GET', 'OPTIONS'])
 @verify_clerk_token
 def get_dashboard_revenue(user_id):
     if not mongo:
@@ -519,7 +506,7 @@ def get_dashboard_revenue(user_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/dashboard/orders', methods=['GET'])
+@app.route('/api/dashboard/orders', methods=['GET', 'OPTIONS'])
 @verify_clerk_token
 def get_dashboard_orders(user_id):
     if not mongo:
@@ -579,7 +566,7 @@ def get_dashboard_orders(user_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/dashboard/popular-dishes', methods=['GET'])
+@app.route('/api/dashboard/popular-dishes', methods=['GET', 'OPTIONS'])
 @verify_clerk_token
 def get_popular_dishes(user_id):
     if not mongo:
@@ -631,7 +618,7 @@ def get_popular_dishes(user_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/delivery-staff', methods=['GET'])
+@app.route('/api/delivery-staff', methods=['GET', 'OPTIONS'])
 @verify_clerk_token
 def get_delivery_staff(user_id):
     if not mongo:
@@ -647,35 +634,5 @@ def get_delivery_staff(user_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/vendors', methods=['POST'])
-@verify_clerk_token
-def create_vendor(user_id):
-    if not mongo:
-        return jsonify({'error': 'Database not connected'}), 500
-    
-    try:
-        existing_vendor = mongo.db.vendors.find_one({'clerk_user_id': user_id})
-        if existing_vendor:
-            return jsonify(serialize_doc(existing_vendor))
-        
-        vendor_data = {
-            'clerk_user_id': user_id,
-            'businessName': request.json.get('businessName', 'My Business'),
-            'email': request.json.get('email', ''),
-            'phone': request.json.get('phone', ''),
-            'address': request.json.get('address', ''),
-            'createdAt': datetime.utcnow(),
-            'updatedAt': datetime.utcnow()
-        }
-        
-        result = mongo.db.vendors.insert_one(vendor_data)
-        vendor_data['_id'] = result.inserted_id
-        return jsonify(serialize_doc(vendor_data)), 201
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-# For Vercel deployment - export the app
-handler = app
-
-if __name__ == '__main__':
-    app.run(debug=False)
+# CRITICAL FOR VERCEL: Remove app.run() and export app
+# DO NOT include app.run() in production code
