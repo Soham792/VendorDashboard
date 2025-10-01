@@ -233,9 +233,18 @@ const MenuManagement = () => {
                       alt={menu.name}
                       className="w-full h-48 object-cover hover:scale-105 transition-transform duration-300"
                       onError={(e) => {
+                        console.log(`Image failed to load for ${menu.name}: ${menu.imageUrl}`);
                         e.target.style.display = 'none'
                       }}
+                      onLoad={() => {
+                        console.log(`Image loaded successfully for ${menu.name}: ${menu.imageUrl}`);
+                      }}
                     />
+                  </div>
+                )}
+                {!menu.imageUrl && (
+                  <div className="mb-4 rounded-lg overflow-hidden bg-gray-100 h-48 flex items-center justify-center">
+                    <p className="text-gray-500 text-sm">No image available</p>
                   </div>
                 )}
                 <div className="flex justify-between items-start mb-4">

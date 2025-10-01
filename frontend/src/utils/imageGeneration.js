@@ -1,5 +1,7 @@
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+
 /**
- * Generate a food image by searching the web based on dish name
+ * Generate a food image by searching the web based on dish name using Gemini API
  * @param {string} dishName - Name of the dish
  * @param {string} description - Description of the dish (optional)
  * @returns {Promise<string>} - Image URL
@@ -8,20 +10,32 @@ export const generateFoodImage = async (dishName, description = '') => {
   try {
     console.log(`Generating image for: ${dishName}`);
     
-    // Try sources in order of specificity - Pixabay first for exact matches
+    // First try to get image using Gemini API web search
+    const geminiImage = await searchImageWithGemini(dishName);
+    if (geminiImage && await validateImage(geminiImage)) {
+      console.log(`Successfully got image from Gemini search: ${geminiImage}`);
+      return geminiImage;
+    }
+    
+    // Fallback to curated database for exact matches
+    const curatedImage = await getCuratedFoodImage(dishName);
+    if (curatedImage && await validateImage(curatedImage)) {
+      console.log(`Successfully got image from curated database: ${curatedImage}`);
+      return curatedImage;
+    }
+    
+    // Try other sources as final fallback
     const imageSources = [
-      () => getPixabayImage(dishName),  // Most specific dish matching
-      () => getUnsplashImage(dishName), // Good search capabilities
-      () => getPexelsImage(dishName),   // Fallback with generic images
-      () => getFoodiesFeedImage(dishName) // Random high-quality images
+      () => getUnsplashImage(dishName),
+      () => getPexelsImage(dishName),
+      () => getFoodiesFeedImage(dishName)
     ];
 
-    // Try each source until we get a working image
     for (const getImage of imageSources) {
       try {
         const imageUrl = await getImage();
         if (imageUrl && await validateImage(imageUrl)) {
-          console.log(`Successfully got image from source: ${imageUrl}`);
+          console.log(`Successfully got image from fallback source: ${imageUrl}`);
           return imageUrl;
         }
       } catch (error) {
@@ -36,6 +50,77 @@ export const generateFoodImage = async (dishName, description = '') => {
   } catch (error) {
     console.error('Error generating food image:', error);
     return generateDefaultFoodImage(dishName);
+  }
+};
+
+/**
+ * Search for food images using Gemini API web search
+ * @param {string} dishName - Name of the dish
+ * @returns {Promise<string>} - Image URL
+ */
+const searchImageWithGemini = async (dishName) => {
+  try {
+    if (!GEMINI_API_KEY) {
+      throw new Error('Gemini API key not found');
+    }
+
+    // Use Gemini to search for specific food images
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{
+            text: `I need a high-quality food photograph URL for the dish: "${dishName}". 
+
+Please search for this specific dish and provide a direct image URL from Unsplash that shows exactly this food item. The URL should be in this format: https://images.unsplash.com/photo-[ID]?w=800&h=600&fit=crop
+
+Requirements:
+- Must show the actual dish "${dishName}"
+- High-quality food photography
+- Professional presentation
+- Appetizing appearance
+
+Return ONLY the direct Unsplash image URL, nothing else. Example format: https://images.unsplash.com/photo-1234567890123-abcdef123456?w=800&h=600&fit=crop`
+          }]
+        }],
+        generationConfig: {
+          temperature: 0.1,
+          topK: 1,
+          topP: 0.1,
+          maxOutputTokens: 200,
+        }
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Gemini API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    
+    if (data.candidates && data.candidates[0] && data.candidates[0].content) {
+      let imageUrl = data.candidates[0].content.parts[0].text.trim();
+      
+      // Clean up the URL if it has extra text
+      const urlMatch = imageUrl.match(/(https:\/\/images\.unsplash\.com\/[^\s]+)/);
+      if (urlMatch) {
+        imageUrl = urlMatch[1];
+      }
+      
+      // Validate that it's a proper Unsplash URL or other image URL
+      if (imageUrl.includes('unsplash.com') || imageUrl.match(/\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i)) {
+        return imageUrl;
+      }
+    }
+    
+    throw new Error('No valid image URL found in Gemini response');
+    
+  } catch (error) {
+    console.error('Gemini image search failed:', error);
+    throw error;
   }
 };
 
@@ -96,7 +181,7 @@ const getPexelsImage = async (dishName) => {
  * @param {string} dishName - Name of the dish
  * @returns {Promise<string>} - Image URL
  */
-const getPixabayImage = async (dishName) => {
+const getCuratedFoodImage = async (dishName) => {
   // Using high-quality, specific food images from various sources
   const foodImages = {
     // Indian dishes with real images
@@ -127,11 +212,14 @@ const getPixabayImage = async (dishName) => {
     'rajma': 'https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=800&h=600&fit=crop',
     'paneer': 'https://images.unsplash.com/photo-1567188040759-fb8a883dc6d8?w=800&h=600&fit=crop',
     'paneer butter masala': 'https://images.unsplash.com/photo-1567188040759-fb8a883dc6d8?w=800&h=600&fit=crop',
-    'butter chicken': 'https://images.unsplash.com/photo-1565299624946-b28f40a0ca4b?w=800&h=600&fit=crop',
+    'butter chicken': 'https://images.unsplash.com/photo-1588166524941-3bf61a9c41db?w=800&h=600&fit=crop',
+    'butter chicken with naan': 'https://images.unsplash.com/photo-1588166524941-3bf61a9c41db?w=800&h=600&fit=crop',
+    'chicken with naan': 'https://images.unsplash.com/photo-1588166524941-3bf61a9c41db?w=800&h=600&fit=crop',
     'tandoori chicken': 'https://images.unsplash.com/photo-1599487488170-d11ec9c172f0?w=800&h=600&fit=crop',
     'tandoori': 'https://images.unsplash.com/photo-1599487488170-d11ec9c172f0?w=800&h=600&fit=crop',
     'masala': 'https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=800&h=600&fit=crop',
     'tikka masala': 'https://images.unsplash.com/photo-1565299624946-b28f40a0ca4b?w=800&h=600&fit=crop',
+    'chicken tikka masala': 'https://images.unsplash.com/photo-1565299624946-b28f40a0ca4b?w=800&h=600&fit=crop',
     'palak paneer': 'https://images.unsplash.com/photo-1567188040759-fb8a883dc6d8?w=800&h=600&fit=crop',
     
     // International dishes
