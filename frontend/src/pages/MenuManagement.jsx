@@ -299,12 +299,12 @@ const MenuManagement = () => {
 
       {/* Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-4 w-full max-w-lg mx-auto max-h-[90vh] overflow-y-auto">
+            <h2 className="text-lg font-semibold text-gray-900 mb-3">
               {editingMenu ? 'Edit Menu Item' : 'Add Menu Item'}
             </h2>
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-3">
               <div>
                 <label className="label">Dish Name</label>
                 <input
@@ -407,13 +407,13 @@ const MenuManagement = () => {
               {/* Image Generation Section */}
               <div>
                 <label className="label">Food Image</label>
-                <div className="space-y-3">
+                <div className="space-y-2">
                   {imagePreview && (
                     <div className="relative">
                       <img 
                         src={imagePreview} 
                         alt="Preview" 
-                        className="w-full h-32 object-cover rounded-lg border"
+                        className="w-full h-24 object-cover rounded border"
                       />
                       <button
                         type="button"
@@ -421,7 +421,7 @@ const MenuManagement = () => {
                           setImagePreview('')
                           setFormData({...formData, imageUrl: ''})
                         }}
-                        className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
+                        className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
                       >
                         <Trash2 className="h-3 w-3" />
                       </button>
@@ -431,22 +431,22 @@ const MenuManagement = () => {
                     type="button"
                     onClick={handleGenerateImage}
                     disabled={generatingImage || !formData.name || !formData.description}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {generatingImage ? (
                       <>
                         <Loader className="h-4 w-4 animate-spin" />
-                        Generating Image...
+                        Generating...
                       </>
                     ) : (
                       <>
                         <ImageIcon className="h-4 w-4" />
-                        Generate Food Image
+                        Generate Image
                       </>
                     )}
                   </button>
                   <p className="text-xs text-gray-500">
-                    AI will generate a food image based on dish name and description
+                    Generate food image based on dish name
                   </p>
                 </div>
               </div>
@@ -464,7 +464,7 @@ const MenuManagement = () => {
                 </label>
               </div>
 
-              <div className="flex justify-end space-x-3 pt-4">
+              <div className="flex justify-end space-x-2 pt-3">
                 <button
                   type="button"
                   onClick={() => {

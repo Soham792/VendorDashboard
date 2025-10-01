@@ -8,12 +8,12 @@ export const generateFoodImage = async (dishName, description = '') => {
   try {
     console.log(`Generating image for: ${dishName}`);
     
-    // Try multiple image sources for better reliability
+    // Try sources in order of specificity - Pixabay first for exact matches
     const imageSources = [
-      () => getUnsplashImage(dishName),
-      () => getPexelsImage(dishName),
-      () => getPixabayImage(dishName),
-      () => getFoodiesFeedImage(dishName)
+      () => getPixabayImage(dishName),  // Most specific dish matching
+      () => getUnsplashImage(dishName), // Good search capabilities
+      () => getPexelsImage(dishName),   // Fallback with generic images
+      () => getFoodiesFeedImage(dishName) // Random high-quality images
     ];
 
     // Try each source until we get a working image
@@ -97,66 +97,99 @@ const getPexelsImage = async (dishName) => {
  * @returns {Promise<string>} - Image URL
  */
 const getPixabayImage = async (dishName) => {
-  // Using Pixabay's free image service with common food items including Indian dishes
+  // Using high-quality, specific food images from various sources
   const foodImages = {
-    // Indian dishes
-    'pav bhaji': 'https://cdn.pixabay.com/photo/2020/01/16/11/49/pav-bhaji-4770943_1280.jpg',
-    'bhaji': 'https://cdn.pixabay.com/photo/2020/01/16/11/49/pav-bhaji-4770943_1280.jpg',
-    'pav': 'https://cdn.pixabay.com/photo/2020/01/16/11/49/pav-bhaji-4770943_1280.jpg',
-    'dosa': 'https://cdn.pixabay.com/photo/2017/06/16/11/38/dosa-2408952_1280.jpg',
-    'biryani': 'https://cdn.pixabay.com/photo/2019/01/29/18/05/biryani-3962073_1280.jpg',
-    'curry': 'https://cdn.pixabay.com/photo/2017/06/16/11/38/curry-2408952_1280.jpg',
-    'dal': 'https://cdn.pixabay.com/photo/2017/06/16/11/38/dal-2408952_1280.jpg',
-    'roti': 'https://cdn.pixabay.com/photo/2017/06/23/23/57/bread-2434370_1280.jpg',
-    'chapati': 'https://cdn.pixabay.com/photo/2017/06/23/23/57/bread-2434370_1280.jpg',
-    'naan': 'https://cdn.pixabay.com/photo/2017/06/23/23/57/bread-2434370_1280.jpg',
-    'samosa': 'https://cdn.pixabay.com/photo/2020/03/29/10/17/samosa-4981648_1280.jpg',
-    'idli': 'https://cdn.pixabay.com/photo/2017/06/16/11/38/idli-2408952_1280.jpg',
-    'vada': 'https://cdn.pixabay.com/photo/2017/06/16/11/38/vada-2408952_1280.jpg',
-    'poha': 'https://cdn.pixabay.com/photo/2014/12/11/02/55/rice-563612_1280.jpg',
-    'upma': 'https://cdn.pixabay.com/photo/2014/12/11/02/55/rice-563612_1280.jpg',
-    'paratha': 'https://cdn.pixabay.com/photo/2017/06/23/23/57/bread-2434370_1280.jpg',
-    'chole': 'https://cdn.pixabay.com/photo/2017/06/16/11/38/curry-2408952_1280.jpg',
-    'rajma': 'https://cdn.pixabay.com/photo/2017/06/16/11/38/curry-2408952_1280.jpg',
-    'paneer': 'https://cdn.pixabay.com/photo/2017/06/16/11/38/paneer-2408952_1280.jpg',
-    'butter chicken': 'https://cdn.pixabay.com/photo/2020/06/30/15/03/chicken-5356775_1280.jpg',
-    'tandoori': 'https://cdn.pixabay.com/photo/2020/06/30/15/03/chicken-5356775_1280.jpg',
-    'masala': 'https://cdn.pixabay.com/photo/2017/06/16/11/38/curry-2408952_1280.jpg',
+    // Indian dishes with real images
+    'pav bhaji': 'https://images.unsplash.com/photo-1606491956689-2ea866880c84?w=800&h=600&fit=crop',
+    'bhaji': 'https://images.unsplash.com/photo-1606491956689-2ea866880c84?w=800&h=600&fit=crop',
+    'pav': 'https://images.unsplash.com/photo-1586190848861-99aa4a171e90?w=800&h=600&fit=crop',
+    'dosa': 'https://images.unsplash.com/photo-1567188040759-fb8a883dc6d8?w=800&h=600&fit=crop',
+    'masala dosa': 'https://images.unsplash.com/photo-1567188040759-fb8a883dc6d8?w=800&h=600&fit=crop',
+    'biryani': 'https://images.unsplash.com/photo-1563379091339-03246963d51a?w=800&h=600&fit=crop',
+    'chicken biryani': 'https://images.unsplash.com/photo-1563379091339-03246963d51a?w=800&h=600&fit=crop',
+    'curry': 'https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=800&h=600&fit=crop',
+    'dal': 'https://images.unsplash.com/photo-1546833999-b9f581a1996d?w=800&h=600&fit=crop',
+    'dal tadka': 'https://images.unsplash.com/photo-1546833999-b9f581a1996d?w=800&h=600&fit=crop',
+    'roti': 'https://images.unsplash.com/photo-1574653853027-5d5b25b5e5d8?w=800&h=600&fit=crop',
+    'chapati': 'https://images.unsplash.com/photo-1574653853027-5d5b25b5e5d8?w=800&h=600&fit=crop',
+    'naan': 'https://images.unsplash.com/photo-1565557623262-b51c2513a641?w=800&h=600&fit=crop',
+    'garlic naan': 'https://images.unsplash.com/photo-1565557623262-b51c2513a641?w=800&h=600&fit=crop',
+    'samosa': 'https://images.unsplash.com/photo-1601050690597-df0568f70950?w=800&h=600&fit=crop',
+    'idli': 'https://images.unsplash.com/photo-1589301760014-d929f3979dbc?w=800&h=600&fit=crop',
+    'vada': 'https://images.unsplash.com/photo-1589301760014-d929f3979dbc?w=800&h=600&fit=crop',
+    'medu vada': 'https://images.unsplash.com/photo-1589301760014-d929f3979dbc?w=800&h=600&fit=crop',
+    'poha': 'https://images.unsplash.com/photo-1596797038530-2c107229654b?w=800&h=600&fit=crop',
+    'upma': 'https://images.unsplash.com/photo-1596797038530-2c107229654b?w=800&h=600&fit=crop',
+    'paratha': 'https://images.unsplash.com/photo-1574653853027-5d5b25b5e5d8?w=800&h=600&fit=crop',
+    'aloo paratha': 'https://images.unsplash.com/photo-1574653853027-5d5b25b5e5d8?w=800&h=600&fit=crop',
+    'chole': 'https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=800&h=600&fit=crop',
+    'chole bhature': 'https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=800&h=600&fit=crop',
+    'rajma': 'https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=800&h=600&fit=crop',
+    'paneer': 'https://images.unsplash.com/photo-1567188040759-fb8a883dc6d8?w=800&h=600&fit=crop',
+    'paneer butter masala': 'https://images.unsplash.com/photo-1567188040759-fb8a883dc6d8?w=800&h=600&fit=crop',
+    'butter chicken': 'https://images.unsplash.com/photo-1565299624946-b28f40a0ca4b?w=800&h=600&fit=crop',
+    'tandoori chicken': 'https://images.unsplash.com/photo-1599487488170-d11ec9c172f0?w=800&h=600&fit=crop',
+    'tandoori': 'https://images.unsplash.com/photo-1599487488170-d11ec9c172f0?w=800&h=600&fit=crop',
+    'masala': 'https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=800&h=600&fit=crop',
+    'tikka masala': 'https://images.unsplash.com/photo-1565299624946-b28f40a0ca4b?w=800&h=600&fit=crop',
+    'palak paneer': 'https://images.unsplash.com/photo-1567188040759-fb8a883dc6d8?w=800&h=600&fit=crop',
     
     // International dishes
-    'pizza': 'https://cdn.pixabay.com/photo/2017/12/09/08/18/pizza-3007395_1280.jpg',
-    'burger': 'https://cdn.pixabay.com/photo/2016/03/05/19/02/hamburger-1238246_1280.jpg',
-    'pasta': 'https://cdn.pixabay.com/photo/2018/07/18/19/12/pasta-3547078_1280.jpg',
-    'rice': 'https://cdn.pixabay.com/photo/2014/12/11/02/55/rice-563612_1280.jpg',
-    'chicken': 'https://cdn.pixabay.com/photo/2020/06/30/15/03/chicken-5356775_1280.jpg',
-    'fish': 'https://cdn.pixabay.com/photo/2014/11/05/15/57/salmon-518032_1280.jpg',
-    'salad': 'https://cdn.pixabay.com/photo/2017/05/11/19/20/belly-2305346_1280.jpg',
-    'soup': 'https://cdn.pixabay.com/photo/2017/06/16/11/38/soup-2408952_1280.jpg',
-    'bread': 'https://cdn.pixabay.com/photo/2017/06/23/23/57/bread-2434370_1280.jpg',
-    'cake': 'https://cdn.pixabay.com/photo/2017/01/11/11/33/cake-1971552_1280.jpg',
-    'sandwich': 'https://cdn.pixabay.com/photo/2017/05/07/08/56/sandwich-2293271_1280.jpg',
-    'noodles': 'https://cdn.pixabay.com/photo/2017/03/23/19/57/asparagus-2169305_1280.jpg',
-    'steak': 'https://cdn.pixabay.com/photo/2016/01/22/02/13/meat-1155132_1280.jpg',
-    'eggs': 'https://cdn.pixabay.com/photo/2014/07/08/12/34/food-386733_1280.jpg'
+    'pizza': 'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=800&h=600&fit=crop',
+    'margherita pizza': 'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=800&h=600&fit=crop',
+    'burger': 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=800&h=600&fit=crop',
+    'cheeseburger': 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=800&h=600&fit=crop',
+    'pasta': 'https://images.unsplash.com/photo-1551183053-bf91a1d81141?w=800&h=600&fit=crop',
+    'spaghetti': 'https://images.unsplash.com/photo-1551183053-bf91a1d81141?w=800&h=600&fit=crop',
+    'rice': 'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=800&h=600&fit=crop',
+    'fried rice': 'https://images.unsplash.com/photo-1603133872878-684f208fb84b?w=800&h=600&fit=crop',
+    'chicken': 'https://images.unsplash.com/photo-1598103442097-8b74394b95c6?w=800&h=600&fit=crop',
+    'grilled chicken': 'https://images.unsplash.com/photo-1598103442097-8b74394b95c6?w=800&h=600&fit=crop',
+    'fish': 'https://images.unsplash.com/photo-1544943910-4c1dc44aab44?w=800&h=600&fit=crop',
+    'grilled fish': 'https://images.unsplash.com/photo-1544943910-4c1dc44aab44?w=800&h=600&fit=crop',
+    'salad': 'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=800&h=600&fit=crop',
+    'caesar salad': 'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=800&h=600&fit=crop',
+    'soup': 'https://images.unsplash.com/photo-1547592180-85f173990554?w=800&h=600&fit=crop',
+    'tomato soup': 'https://images.unsplash.com/photo-1547592180-85f173990554?w=800&h=600&fit=crop',
+    'bread': 'https://images.unsplash.com/photo-1549931319-a545dcf3bc73?w=800&h=600&fit=crop',
+    'cake': 'https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=800&h=600&fit=crop',
+    'chocolate cake': 'https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=800&h=600&fit=crop',
+    'sandwich': 'https://images.unsplash.com/photo-1553909489-cd47e0ef937f?w=800&h=600&fit=crop',
+    'club sandwich': 'https://images.unsplash.com/photo-1553909489-cd47e0ef937f?w=800&h=600&fit=crop',
+    'noodles': 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=800&h=600&fit=crop',
+    'ramen': 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=800&h=600&fit=crop',
+    'steak': 'https://images.unsplash.com/photo-1546833999-b9f581a1996d?w=800&h=600&fit=crop',
+    'eggs': 'https://images.unsplash.com/photo-1482049016688-2d3e1b311543?w=800&h=600&fit=crop',
+    'scrambled eggs': 'https://images.unsplash.com/photo-1482049016688-2d3e1b311543?w=800&h=600&fit=crop'
   };
 
-  // Try to match dish name with available images (check for partial matches)
-  const dishLower = dishName.toLowerCase();
+  // Clean and normalize dish name for better matching
+  const dishLower = dishName.toLowerCase().trim();
   
   // First try exact matches
   if (foodImages[dishLower]) {
+    console.log(`Exact match found for: ${dishName}`);
     return foodImages[dishLower];
   }
   
-  // Then try partial matches
+  // Then try partial matches - prioritize longer matches
+  const matches = [];
   for (const [key, imageUrl] of Object.entries(foodImages)) {
     if (dishLower.includes(key) || key.includes(dishLower)) {
-      return imageUrl;
+      matches.push({ key, imageUrl, score: key.length });
     }
   }
+  
+  if (matches.length > 0) {
+    // Sort by score (longer matches first) and return the best match
+    matches.sort((a, b) => b.score - a.score);
+    console.log(`Partial match found for: ${dishName} -> ${matches[0].key}`);
+    return matches[0].imageUrl;
+  }
 
-  // Return a generic Indian food image if no match (since many users might be Indian restaurants)
-  return 'https://cdn.pixabay.com/photo/2017/06/16/11/38/curry-2408952_1280.jpg';
+  // Return a generic Indian food image if no match
+  console.log(`No match found for: ${dishName}, using default`);
+  return 'https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=800&h=600&fit=crop';
 };
 
 /**
