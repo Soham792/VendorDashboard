@@ -1,32 +1,29 @@
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-
 /**
- * Generate a food image by searching the web based on dish name using Gemini API
+ * Generate a food image by searching the web based on dish name
  * @param {string} dishName - Name of the dish
  * @param {string} description - Description of the dish (optional)
  * @returns {Promise<string>} - Image URL
  */
 export const generateFoodImage = async (dishName, description = '') => {
   try {
-    console.log(`Generating image for: ${dishName}`);
+    console.log(`🍽️ Generating image for: "${dishName}"`);
     
-    // First try to get image using Gemini API web search
-    const geminiImage = await searchImageWithGemini(dishName);
-    if (geminiImage && await validateImage(geminiImage)) {
-      console.log(`Successfully got image from Gemini search: ${geminiImage}`);
-      return geminiImage;
-    }
-    
-    // Fallback to curated database for exact matches
+    // First try curated database for exact matches (most reliable)
     const curatedImage = await getCuratedFoodImage(dishName);
     if (curatedImage && await validateImage(curatedImage)) {
-      console.log(`Successfully got image from curated database: ${curatedImage}`);
+      console.log(`✅ Got image from curated database: ${curatedImage}`);
       return curatedImage;
     }
     
-    // Try other sources as final fallback
+    // Try direct Unsplash search with multiple search terms
+    const unsplashImage = await getUnsplashImage(dishName);
+    if (unsplashImage && await validateImage(unsplashImage)) {
+      console.log(`✅ Got image from Unsplash: ${unsplashImage}`);
+      return unsplashImage;
+    }
+    
+    // Try other sources as fallback
     const imageSources = [
-      () => getUnsplashImage(dishName),
       () => getPexelsImage(dishName),
       () => getFoodiesFeedImage(dishName)
     ];
@@ -35,94 +32,25 @@ export const generateFoodImage = async (dishName, description = '') => {
       try {
         const imageUrl = await getImage();
         if (imageUrl && await validateImage(imageUrl)) {
-          console.log(`Successfully got image from fallback source: ${imageUrl}`);
+          console.log(`✅ Got image from fallback source: ${imageUrl}`);
           return imageUrl;
         }
       } catch (error) {
-        console.log(`Image source failed, trying next...`);
+        console.log(`❌ Image source failed, trying next...`);
         continue;
       }
     }
 
     // If all sources fail, return a default image
+    console.log(`⚠️ All sources failed, using default image for: ${dishName}`);
     return generateDefaultFoodImage(dishName);
     
   } catch (error) {
-    console.error('Error generating food image:', error);
+    console.error('❌ Error generating food image:', error);
     return generateDefaultFoodImage(dishName);
   }
 };
 
-/**
- * Search for food images using Gemini API web search
- * @param {string} dishName - Name of the dish
- * @returns {Promise<string>} - Image URL
- */
-const searchImageWithGemini = async (dishName) => {
-  try {
-    if (!GEMINI_API_KEY) {
-      throw new Error('Gemini API key not found');
-    }
-
-    // Use Gemini to search for specific food images
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        contents: [{
-          parts: [{
-            text: `I need a high-quality food photograph URL for the dish: "${dishName}". 
-
-Please search for this specific dish and provide a direct image URL from Unsplash that shows exactly this food item. The URL should be in this format: https://images.unsplash.com/photo-[ID]?w=800&h=600&fit=crop
-
-Requirements:
-- Must show the actual dish "${dishName}"
-- High-quality food photography
-- Professional presentation
-- Appetizing appearance
-
-Return ONLY the direct Unsplash image URL, nothing else. Example format: https://images.unsplash.com/photo-1234567890123-abcdef123456?w=800&h=600&fit=crop`
-          }]
-        }],
-        generationConfig: {
-          temperature: 0.1,
-          topK: 1,
-          topP: 0.1,
-          maxOutputTokens: 200,
-        }
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error(`Gemini API error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    
-    if (data.candidates && data.candidates[0] && data.candidates[0].content) {
-      let imageUrl = data.candidates[0].content.parts[0].text.trim();
-      
-      // Clean up the URL if it has extra text
-      const urlMatch = imageUrl.match(/(https:\/\/images\.unsplash\.com\/[^\s]+)/);
-      if (urlMatch) {
-        imageUrl = urlMatch[1];
-      }
-      
-      // Validate that it's a proper Unsplash URL or other image URL
-      if (imageUrl.includes('unsplash.com') || imageUrl.match(/\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i)) {
-        return imageUrl;
-      }
-    }
-    
-    throw new Error('No valid image URL found in Gemini response');
-    
-  } catch (error) {
-    console.error('Gemini image search failed:', error);
-    throw error;
-  }
-};
 
 /**
  * Get food image from Unsplash
@@ -131,28 +59,53 @@ Return ONLY the direct Unsplash image URL, nothing else. Example format: https:/
  */
 const getUnsplashImage = async (dishName) => {
   try {
-    // Clean the dish name and create search terms
+    console.log(`🔍 Searching Unsplash for: "${dishName}"`);
+    
+    // Clean the dish name and create multiple search variations
     const cleanDishName = dishName.toLowerCase().replace(/[^a-z\s]/g, '').trim();
+    const words = cleanDishName.split(' ').filter(word => word.length > 2);
+    
     const searchTerms = [
-      `${cleanDishName}-food`,
-      `${cleanDishName}`,
-      `indian-${cleanDishName}`,
-      `${cleanDishName}-dish`
+      // Exact dish name
+      cleanDishName,
+      // With food keyword
+      `${cleanDishName} food`,
+      // Individual words for complex dishes
+      ...words,
+      // Indian cuisine specific
+      `indian ${cleanDishName}`,
+      // Generic food terms
+      'indian food',
+      'delicious food',
+      'restaurant food'
     ];
     
-    // Try different search terms
+    // Try each search term
     for (const term of searchTerms) {
-      const imageUrl = `https://source.unsplash.com/800x600/?${encodeURIComponent(term)}`;
-      
-      // Return the URL directly - Unsplash handles the redirect
-      if (await validateImage(imageUrl)) {
-        return imageUrl;
+      try {
+        const encodedTerm = encodeURIComponent(term);
+        const imageUrl = `https://source.unsplash.com/800x600/?${encodedTerm}`;
+        
+        console.log(`🔍 Trying Unsplash search: "${term}"`);
+        
+        // Test if the image loads
+        if (await validateImage(imageUrl)) {
+          console.log(`✅ Unsplash image found for term: "${term}"`);
+          return imageUrl;
+        }
+      } catch (error) {
+        console.log(`❌ Unsplash search failed for: "${term}"`);
+        continue;
       }
     }
     
-    // Fallback to generic food image
-    return 'https://source.unsplash.com/800x600/?food';
+    // Final fallback
+    const fallbackUrl = 'https://source.unsplash.com/800x600/?food,delicious';
+    console.log(`⚠️ Using Unsplash fallback image`);
+    return fallbackUrl;
+    
   } catch (error) {
+    console.error('❌ Unsplash search completely failed:', error);
     throw new Error('Unsplash image not available');
   }
 };
@@ -254,9 +207,11 @@ const getCuratedFoodImage = async (dishName) => {
   // Clean and normalize dish name for better matching
   const dishLower = dishName.toLowerCase().trim();
   
+  console.log(`🔍 Searching curated database for: "${dishName}"`);
+  
   // First try exact matches
   if (foodImages[dishLower]) {
-    console.log(`Exact match found for: ${dishName}`);
+    console.log(`✅ Exact match found in database: ${dishName} -> ${dishLower}`);
     return foodImages[dishLower];
   }
   
@@ -271,13 +226,13 @@ const getCuratedFoodImage = async (dishName) => {
   if (matches.length > 0) {
     // Sort by score (longer matches first) and return the best match
     matches.sort((a, b) => b.score - a.score);
-    console.log(`Partial match found for: ${dishName} -> ${matches[0].key}`);
+    console.log(`✅ Partial match found in database: ${dishName} -> ${matches[0].key}`);
     return matches[0].imageUrl;
   }
 
-  // Return a generic Indian food image if no match
-  console.log(`No match found for: ${dishName}, using default`);
-  return 'https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=800&h=600&fit=crop';
+  // No match found in curated database
+  console.log(`❌ No match found in database for: ${dishName}`);
+  throw new Error('No match in curated database');
 };
 
 /**
@@ -344,13 +299,33 @@ const generateDefaultFoodImage = (dishName) => {
  */
 export const validateImage = (imageUrl) => {
   return new Promise((resolve) => {
+    if (!imageUrl || typeof imageUrl !== 'string') {
+      console.log(`❌ Invalid image URL: ${imageUrl}`);
+      resolve(false);
+      return;
+    }
+    
+    console.log(`🔍 Validating image: ${imageUrl}`);
+    
     const img = new Image();
     img.crossOrigin = 'anonymous'; // Handle CORS
-    img.onload = () => resolve(true);
-    img.onerror = () => resolve(false);
+    
+    img.onload = () => {
+      console.log(`✅ Image validation successful: ${imageUrl}`);
+      resolve(true);
+    };
+    
+    img.onerror = () => {
+      console.log(`❌ Image validation failed: ${imageUrl}`);
+      resolve(false);
+    };
+    
     img.src = imageUrl;
     
-    // Timeout after 5 seconds
-    setTimeout(() => resolve(false), 5000);
+    // Timeout after 8 seconds (longer for better reliability)
+    setTimeout(() => {
+      console.log(`⏰ Image validation timeout: ${imageUrl}`);
+      resolve(false);
+    }, 8000);
   });
 };
