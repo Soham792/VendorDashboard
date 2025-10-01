@@ -3,7 +3,7 @@ import { useAuth } from '@clerk/clerk-react'
 import api from '../utils/api'
 import { Plus, Edit, Trash2, Eye, EyeOff, Calendar, Image as ImageIcon, Loader } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { generateFoodImage, validateImage } from '../utils/imageGeneration'
+import { validateImageFile, convertToBase64, createImagePreview, cleanupImagePreview } from '../utils/imageUpload'
 
 const MenuManagement = () => {
   const { getToken } = useAuth()
@@ -23,8 +23,9 @@ const MenuManagement = () => {
     isPublished: false,
     imageUrl: ''
   })
-  const [generatingImage, setGeneratingImage] = useState(false)
+  const [uploadingImage, setUploadingImage] = useState(false)
   const [imagePreview, setImagePreview] = useState('')
+  const [selectedFile, setSelectedFile] = useState(null)
 
   const categories = [
     { value: 'main', label: 'Main Course' },
@@ -65,19 +66,18 @@ const MenuManagement = () => {
       const url = editingMenu ? `/menus/${editingMenu._id}` : '/menus'
       const method = editingMenu ? 'put' : 'post'
 
-      // If no image is set and we're creating a new menu, generate one
+      // Handle image upload if a file is selected
       let finalFormData = { ...formData }
-      if (!editingMenu && !formData.imageUrl && formData.name && formData.description) {
-        setGeneratingImage(true)
+      if (selectedFile && !editingMenu) {
+        setUploadingImage(true)
         try {
-          const generatedImage = await generateFoodImage(formData.name, formData.description)
-          finalFormData.imageUrl = generatedImage
-          setImagePreview(generatedImage)
+          const base64Image = await convertToBase64(selectedFile)
+          finalFormData.imageUrl = base64Image
         } catch (error) {
-          console.error('Error generating image:', error)
-          toast.error('Failed to generate image, but menu will be created without image')
+          console.error('Error processing image:', error)
+          toast.error('Failed to process image, but menu will be created without image')
         } finally {
-          setGeneratingImage(false)
+          setUploadingImage(false)
         }
       }
 
@@ -93,7 +93,7 @@ const MenuManagement = () => {
     } catch (error) {
       console.error('Error saving menu:', error)
       toast.error('Failed to save menu')
-      setGeneratingImage(false)
+      setUploadingImage(false)
     }
   }
 
@@ -110,8 +110,12 @@ const MenuManagement = () => {
       isPublished: false,
       imageUrl: ''
     })
+    if (imagePreview && imagePreview.startsWith('blob:')) {
+      cleanupImagePreview(imagePreview)
+    }
     setImagePreview('')
-    setGeneratingImage(false)
+    setSelectedFile(null)
+    setUploadingImage(false)
   }
 
   const handleEdit = (menu) => {
@@ -132,24 +136,50 @@ const MenuManagement = () => {
     setShowModal(true)
   }
 
-  const handleGenerateImage = async () => {
-    if (!formData.name || !formData.description) {
-      toast.error('Please enter dish name and description first')
+  const handleImageUpload = async (event) => {
+    const file = event.target.files[0]
+    if (!file) return
+
+    const validation = validateImageFile(file)
+    if (!validation.isValid) {
+      toast.error(validation.error)
       return
     }
 
-    setGeneratingImage(true)
     try {
-      const generatedImage = await generateFoodImage(formData.name, formData.description)
-      setFormData({ ...formData, imageUrl: generatedImage })
-      setImagePreview(generatedImage)
-      toast.success('Image generated successfully!')
+      // Clean up previous preview
+      if (imagePreview && imagePreview.startsWith('blob:')) {
+        cleanupImagePreview(imagePreview)
+      }
+
+      // Create preview
+      const previewUrl = createImagePreview(file)
+      setImagePreview(previewUrl)
+      setSelectedFile(file)
+      
+      // For editing existing menu, immediately convert to base64
+      if (editingMenu) {
+        setUploadingImage(true)
+        const base64Image = await convertToBase64(file)
+        setFormData({ ...formData, imageUrl: base64Image })
+        setUploadingImage(false)
+      }
+      
+      toast.success('Image selected successfully!')
     } catch (error) {
-      console.error('Error generating image:', error)
-      toast.error('Failed to generate image')
-    } finally {
-      setGeneratingImage(false)
+      console.error('Error processing image:', error)
+      toast.error('Failed to process image')
+      setUploadingImage(false)
     }
+  }
+
+  const handleRemoveImage = () => {
+    if (imagePreview && imagePreview.startsWith('blob:')) {
+      cleanupImagePreview(imagePreview)
+    }
+    setImagePreview('')
+    setSelectedFile(null)
+    setFormData({ ...formData, imageUrl: '' })
   }
 
   const handleDelete = async (menuId) => {
@@ -413,7 +443,7 @@ const MenuManagement = () => {
                 </div>
               )}
 
-              {/* Image Generation Section */}
+              {/* Image Upload Section */}
               <div>
                 <label className="label">Food Image</label>
                 <div className="space-y-2">
@@ -422,40 +452,48 @@ const MenuManagement = () => {
                       <img 
                         src={imagePreview} 
                         alt="Preview" 
-                        className="w-full h-24 object-cover rounded border"
+                        className="w-full h-32 object-cover rounded border"
                       />
                       <button
                         type="button"
-                        onClick={() => {
-                          setImagePreview('')
-                          setFormData({...formData, imageUrl: ''})
-                        }}
+                        onClick={handleRemoveImage}
                         className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
                       >
                         <Trash2 className="h-3 w-3" />
                       </button>
                     </div>
                   )}
-                  <button
-                    type="button"
-                    onClick={handleGenerateImage}
-                    disabled={generatingImage || !formData.name || !formData.description}
-                    className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {generatingImage ? (
-                      <>
-                        <Loader className="h-4 w-4 animate-spin" />
-                        Generating...
-                      </>
-                    ) : (
-                      <>
-                        <ImageIcon className="h-4 w-4" />
-                        Generate Image
-                      </>
-                    )}
-                  </button>
+                  
+                  <div className="flex items-center justify-center w-full">
+                    <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
+                      <div className="flex flex-col items-center justify-center pt-2 pb-2">
+                        {uploadingImage ? (
+                          <>
+                            <Loader className="h-6 w-6 animate-spin text-gray-400 mb-1" />
+                            <p className="text-xs text-gray-500">Processing...</p>
+                          </>
+                        ) : (
+                          <>
+                            <ImageIcon className="h-6 w-6 text-gray-400 mb-1" />
+                            <p className="text-xs text-gray-500">
+                              <span className="font-semibold">Click to upload</span> or drag and drop
+                            </p>
+                            <p className="text-xs text-gray-500">PNG, JPG, WebP up to 5MB</p>
+                          </>
+                        )}
+                      </div>
+                      <input 
+                        type="file" 
+                        className="hidden" 
+                        accept="image/*"
+                        onChange={handleImageUpload}
+                        disabled={uploadingImage}
+                      />
+                    </label>
+                  </div>
+                  
                   <p className="text-xs text-gray-500">
-                    Generate food image based on dish name
+                    Upload a high-quality image of your dish
                   </p>
                 </div>
               </div>
@@ -488,12 +526,12 @@ const MenuManagement = () => {
                 <button 
                   type="submit" 
                   className="btn-primary"
-                  disabled={generatingImage}
+                  disabled={uploadingImage}
                 >
-                  {generatingImage ? (
+                  {uploadingImage ? (
                     <>
                       <Loader className="h-4 w-4 animate-spin mr-2" />
-                      Generating...
+                      Processing...
                     </>
                   ) : (
                     editingMenu ? 'Update' : 'Create'
