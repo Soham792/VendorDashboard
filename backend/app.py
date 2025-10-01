@@ -20,30 +20,17 @@ app = Flask(__name__)
 # Get frontend URL from environment variable
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:3000')
 
-# Configure CORS - Allow all origins for now to fix the issue
+# Configure CORS
 CORS(app, 
-     origins=['*'],  # Allow all origins temporarily
+     origins=[FRONTEND_URL, 'https://vendor-dashboard-frontend-rho.vercel.app'],
      allow_headers=['Content-Type', 'Authorization', 'X-Requested-With'],
      methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-     supports_credentials=False)  # Set to False when using wildcard origin
+     supports_credentials=True)
 
-# Add explicit CORS headers to all responses
-@app.after_request
-def after_request(response):
-    response.headers['Access-Control-Allow-Origin'] = 'https://vendor-dashboard-frontend-rho.vercel.app'
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
-    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
-    response.headers['Access-Control-Allow-Credentials'] = 'true'
-    return response
-
-# MongoDB configuration with URL-encoded password
-# The password 'Manglam@529' needs URL encoding for the @ symbol
-username = "ManglamX"
-password = "Manglam@529"
-encoded_password = urllib.parse.quote_plus(password)
-
-# Use the corrected connection string
-mongo_uri = os.getenv('MONGODB_URI', f'mongodb+srv://{username}:{encoded_password}@nourishnet.bjjeltx.mongodb.net/NourishNet')
+# MongoDB configuration - use environment variable
+mongo_uri = os.getenv('MONGODB_URI')
+if not mongo_uri:
+    raise ValueError('MONGODB_URI environment variable is required')
 app.config['MONGO_URI'] = mongo_uri
 
 # Initialize MongoDB with error handling
@@ -1326,6 +1313,8 @@ def list_vendors_external():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# For Vercel deployment
+# For Vercel deployment - export the app
+handler = app
+
 if __name__ == '__main__':
-    app.run()
+    app.run(debug=False)
