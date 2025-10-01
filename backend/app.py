@@ -1,5 +1,4 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
+from flask import Flask, request, jsonify, make_response
 from flask_pymongo import PyMongo
 from bson import ObjectId
 from datetime import datetime, timedelta
@@ -9,73 +8,58 @@ import base64
 import json
 import hashlib
 
-# DO NOT load dotenv in production - Vercel handles env vars
-# load_dotenv()
-
 app = Flask(__name__)
 
-# CORS Configuration - Allow all origins for now
-CORS(app,
-     resources={r"/api/*": {"origins": "*"}},
-     allow_headers=['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
-     methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'HEAD'],
-     supports_credentials=True,
-     max_age=3600)
-
-# MongoDB configuration with better error handling
+# MongoDB configuration
 mongo = None
 try:
     mongo_uri = os.environ.get('MONGODB_URI')
     if mongo_uri:
         app.config['MONGO_URI'] = mongo_uri
         mongo = PyMongo(app)
-        print("✓ MongoDB connected")
-    else:
-        print("⚠ MONGODB_URI not set - running without database")
 except Exception as e:
-    print(f"⚠ MongoDB error: {e}")
-    mongo = None
+    print(f"MongoDB error: {e}")
 
-# Clerk configuration
-CLERK_SECRET_KEY = os.environ.get('CLERK_SECRET_KEY', '')
+# CORS Headers Helper
+def add_cors_headers(response):
+    """Add CORS headers to any response"""
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, HEAD'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With, Accept, Origin'
+    response.headers['Access-Control-Allow-Credentials'] = 'true'
+    response.headers['Access-Control-Max-Age'] = '3600'
+    return response
 
-# CRITICAL: Handle OPTIONS before any other middleware
-@app.before_request
-def handle_preflight():
-    if request.method == "OPTIONS":
-        response = app.make_response("")
-        response.headers["Access-Control-Allow-Origin"] = "*"
-        response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization,X-Requested-With,Accept,Origin"
-        response.headers["Access-Control-Allow-Methods"] = "GET,PUT,POST,DELETE,OPTIONS,HEAD"
-        response.headers["Access-Control-Allow-Credentials"] = "true"
-        response.headers["Access-Control-Max-Age"] = "3600"
-        return response, 200
+# Global OPTIONS handler
+@app.route('/', defaults={'path': ''}, methods=['OPTIONS'])
+@app.route('/<path:path>', methods=['OPTIONS'])
+def handle_options(path):
+    """Handle ALL OPTIONS requests globally"""
+    response = make_response('', 200)
+    return add_cors_headers(response)
 
+# After request handler
 @app.after_request
 def after_request(response):
-    origin = request.headers.get('Origin', '*')
-    response.headers['Access-Control-Allow-Origin'] = origin
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type,Authorization,X-Requested-With,Accept,Origin'
-    response.headers['Access-Control-Allow-Methods'] = 'GET,PUT,POST,DELETE,OPTIONS,HEAD'
-    response.headers['Access-Control-Allow-Credentials'] = 'true'
-    return response
+    return add_cors_headers(response)
 
 def verify_clerk_token(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        if request.method == 'OPTIONS':
-            return '', 200
-        
         token = None
         if 'Authorization' in request.headers:
             auth_header = request.headers['Authorization']
             try:
                 token = auth_header.split(' ')[1]
             except IndexError:
-                return jsonify({'message': 'Invalid token format'}), 401
+                response = jsonify({'message': 'Invalid token format'})
+                response.status_code = 401
+                return add_cors_headers(response)
         
         if not token:
-            return jsonify({'message': 'Token is missing'}), 401
+            response = jsonify({'message': 'Token is missing'})
+            response.status_code = 401
+            return add_cors_headers(response)
         
         try:
             user_id = None
@@ -93,7 +77,7 @@ def verify_clerk_token(f):
                               token_data.get('id'))
                     
                     user_email = token_data.get('email') or token_data.get('email_address')
-                    user_name = token_data.get('name') or token_data.get('given_name') or token_data.get('first_name')
+                    user_name = token_data.get('name') or token_data.get('given_name')
                     user_picture = token_data.get('picture') or token_data.get('image_url')
                     
                     if user_id:
@@ -176,7 +160,7 @@ def test_api():
         'timestamp': datetime.utcnow().isoformat()
     })
 
-@app.route('/api/vendors/me', methods=['GET', 'OPTIONS'])
+@app.route('/api/vendors/me', methods=['GET'])
 @verify_clerk_token
 def get_vendor_profile(user_id):
     if not mongo:
@@ -190,7 +174,7 @@ def get_vendor_profile(user_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/vendors/me', methods=['PUT', 'OPTIONS'])
+@app.route('/api/vendors/me', methods=['PUT'])
 @verify_clerk_token
 def update_vendor_profile(user_id):
     if not mongo:
@@ -217,7 +201,7 @@ def update_vendor_profile(user_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/vendors', methods=['POST', 'OPTIONS'])
+@app.route('/api/vendors', methods=['POST'])
 @verify_clerk_token
 def create_vendor(user_id):
     if not mongo:
@@ -244,11 +228,11 @@ def create_vendor(user_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/subscriptions', methods=['GET', 'OPTIONS'])
+@app.route('/api/subscriptions', methods=['GET'])
 @verify_clerk_token
 def list_subscriptions(user_id):
     if not mongo:
-        return jsonify({'error': 'Database not connected'}), 500
+        return jsonify([])
     
     try:
         vendor = get_or_create_vendor(user_id)
@@ -261,7 +245,7 @@ def list_subscriptions(user_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/subscriptions', methods=['POST', 'OPTIONS'])
+@app.route('/api/subscriptions', methods=['POST'])
 @verify_clerk_token
 def create_subscription(user_id):
     if not mongo:
@@ -292,11 +276,73 @@ def create_subscription(user_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/menus', methods=['GET', 'OPTIONS'])
+@app.route('/api/subscriptions/<subscription_id>', methods=['PUT'])
+@verify_clerk_token
+def update_subscription(user_id, subscription_id):
+    if not mongo:
+        return jsonify({'error': 'Database not connected'}), 500
+    
+    try:
+        vendor = mongo.db.vendors.find_one({'clerk_user_id': user_id})
+        if not vendor:
+            return jsonify({'error': 'Vendor not found'}), 404
+        
+        from bson import ObjectId
+        sub_obj_id = ObjectId(subscription_id)
+        data = request.json or {}
+        
+        update_fields = {}
+        allowed_fields = ['planName', 'description', 'price', 'duration', 'features', 'isActive']
+        for field in allowed_fields:
+            if field in data:
+                update_fields[field] = data[field]
+        
+        update_fields['updatedAt'] = datetime.utcnow()
+        
+        result = mongo.db.subscriptions.update_one(
+            {'_id': sub_obj_id, 'vendor_id': str(vendor['_id'])},
+            {'$set': update_fields}
+        )
+        
+        if result.modified_count == 0:
+            return jsonify({'error': 'Subscription not found'}), 404
+        
+        updated_sub = mongo.db.subscriptions.find_one({'_id': sub_obj_id})
+        return jsonify(serialize_doc(updated_sub))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/subscriptions/<subscription_id>', methods=['DELETE'])
+@verify_clerk_token
+def delete_subscription(user_id, subscription_id):
+    if not mongo:
+        return jsonify({'error': 'Database not connected'}), 500
+    
+    try:
+        vendor = mongo.db.vendors.find_one({'clerk_user_id': user_id})
+        if not vendor:
+            return jsonify({'error': 'Vendor not found'}), 404
+        
+        from bson import ObjectId
+        sub_obj_id = ObjectId(subscription_id)
+        
+        result = mongo.db.subscriptions.delete_one({
+            '_id': sub_obj_id,
+            'vendor_id': str(vendor['_id'])
+        })
+        
+        if result.deleted_count == 0:
+            return jsonify({'error': 'Subscription not found'}), 404
+        
+        return jsonify({'message': 'Subscription deleted successfully'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/menus', methods=['GET'])
 @verify_clerk_token
 def get_menus(user_id):
     if not mongo:
-        return jsonify({'error': 'Database not connected'}), 500
+        return jsonify([])
     
     try:
         vendor = mongo.db.vendors.find_one({'clerk_user_id': user_id})
@@ -308,7 +354,7 @@ def get_menus(user_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/menus', methods=['POST', 'OPTIONS'])
+@app.route('/api/menus', methods=['POST'])
 @verify_clerk_token
 def create_menu(user_id):
     if not mongo:
@@ -341,11 +387,74 @@ def create_menu(user_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/orders', methods=['GET', 'OPTIONS'])
+@app.route('/api/menus/<menu_id>', methods=['PUT'])
+@verify_clerk_token
+def update_menu(user_id, menu_id):
+    if not mongo:
+        return jsonify({'error': 'Database not connected'}), 500
+    
+    try:
+        vendor = mongo.db.vendors.find_one({'clerk_user_id': user_id})
+        if not vendor:
+            return jsonify({'error': 'Vendor not found'}), 404
+        
+        from bson import ObjectId
+        menu_obj_id = ObjectId(menu_id)
+        data = request.json or {}
+        
+        update_fields = {}
+        allowed_fields = ['name', 'description', 'price', 'category', 'mealType', 'availability', 
+                         'startDate', 'endDate', 'isPublished', 'imageUrl']
+        for field in allowed_fields:
+            if field in data:
+                update_fields[field] = data[field]
+        
+        update_fields['updatedAt'] = datetime.utcnow()
+        
+        result = mongo.db.menus.update_one(
+            {'_id': menu_obj_id, 'vendor_id': str(vendor['_id'])},
+            {'$set': update_fields}
+        )
+        
+        if result.modified_count == 0:
+            return jsonify({'error': 'Menu not found'}), 404
+        
+        updated_menu = mongo.db.menus.find_one({'_id': menu_obj_id})
+        return jsonify(serialize_doc(updated_menu))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/menus/<menu_id>', methods=['DELETE'])
+@verify_clerk_token
+def delete_menu(user_id, menu_id):
+    if not mongo:
+        return jsonify({'error': 'Database not connected'}), 500
+    
+    try:
+        vendor = mongo.db.vendors.find_one({'clerk_user_id': user_id})
+        if not vendor:
+            return jsonify({'error': 'Vendor not found'}), 404
+        
+        from bson import ObjectId
+        menu_obj_id = ObjectId(menu_id)
+        
+        result = mongo.db.menus.delete_one({
+            '_id': menu_obj_id,
+            'vendor_id': str(vendor['_id'])
+        })
+        
+        if result.deleted_count == 0:
+            return jsonify({'error': 'Menu not found'}), 404
+        
+        return jsonify({'message': 'Menu deleted successfully'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/orders', methods=['GET'])
 @verify_clerk_token
 def get_orders(user_id):
     if not mongo:
-        return jsonify({'error': 'Database not connected'}), 500
+        return jsonify([])
     
     try:
         vendor = mongo.db.vendors.find_one({'clerk_user_id': user_id})
@@ -357,26 +466,23 @@ def get_orders(user_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/dashboard/stats', methods=['GET', 'OPTIONS'])
+@app.route('/api/dashboard/stats', methods=['GET'])
 @verify_clerk_token
 def get_dashboard_stats(user_id):
     if not mongo:
-        return jsonify({'error': 'Database not connected'}), 500
+        return jsonify({
+            'totalOrders': 0, 'totalRevenue': 0, 'totalMenuItems': 0,
+            'totalCustomers': 0, 'activeSubscriptions': 0, 'deliveryStaff': 0,
+            'todayRevenue': 0, 'todayOrders': 0, 'pendingOrders': 0, 'completedOrders': 0
+        })
     
     try:
         vendor = get_or_create_vendor(user_id)
         if not vendor:
             return jsonify({
-                'totalOrders': 0,
-                'totalRevenue': 0,
-                'totalMenuItems': 0,
-                'totalCustomers': 0,
-                'activeSubscriptions': 0,
-                'deliveryStaff': 0,
-                'todayRevenue': 0,
-                'todayOrders': 0,
-                'pendingOrders': 0,
-                'completedOrders': 0
+                'totalOrders': 0, 'totalRevenue': 0, 'totalMenuItems': 0,
+                'totalCustomers': 0, 'activeSubscriptions': 0, 'deliveryStaff': 0,
+                'todayRevenue': 0, 'todayOrders': 0, 'pendingOrders': 0, 'completedOrders': 0
             })
         
         vendor_id = str(vendor['_id'])
@@ -429,7 +535,7 @@ def get_dashboard_stats(user_id):
             'status': 'delivered'
         })
         
-        stats = {
+        return jsonify({
             'totalOrders': total_orders,
             'totalRevenue': round(total_revenue, 2),
             'totalMenuItems': total_menus,
@@ -440,17 +546,15 @@ def get_dashboard_stats(user_id):
             'todayOrders': today_orders,
             'pendingOrders': pending_orders,
             'completedOrders': completed_orders
-        }
-        
-        return jsonify(stats)
+        })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/dashboard/revenue', methods=['GET', 'OPTIONS'])
+@app.route('/api/dashboard/revenue', methods=['GET'])
 @verify_clerk_token
 def get_dashboard_revenue(user_id):
     if not mongo:
-        return jsonify({'error': 'Database not connected'}), 500
+        return jsonify([])
     
     try:
         vendor = get_or_create_vendor(user_id)
@@ -506,11 +610,11 @@ def get_dashboard_revenue(user_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/dashboard/orders', methods=['GET', 'OPTIONS'])
+@app.route('/api/dashboard/orders', methods=['GET'])
 @verify_clerk_token
 def get_dashboard_orders(user_id):
     if not mongo:
-        return jsonify({'error': 'Database not connected'}), 500
+        return jsonify([])
     
     try:
         vendor = get_or_create_vendor(user_id)
@@ -566,11 +670,11 @@ def get_dashboard_orders(user_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/dashboard/popular-dishes', methods=['GET', 'OPTIONS'])
+@app.route('/api/dashboard/popular-dishes', methods=['GET'])
 @verify_clerk_token
 def get_popular_dishes(user_id):
     if not mongo:
-        return jsonify({'error': 'Database not connected'}), 500
+        return jsonify([])
     
     try:
         vendor = get_or_create_vendor(user_id)
@@ -618,11 +722,11 @@ def get_popular_dishes(user_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/delivery-staff', methods=['GET', 'OPTIONS'])
+@app.route('/api/delivery-staff', methods=['GET'])
 @verify_clerk_token
 def get_delivery_staff(user_id):
     if not mongo:
-        return jsonify({'error': 'Database not connected'}), 500
+        return jsonify([])
     
     try:
         vendor = mongo.db.vendors.find_one({'clerk_user_id': user_id})
@@ -634,5 +738,31 @@ def get_delivery_staff(user_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# CRITICAL FOR VERCEL: Remove app.run() and export app
-# DO NOT include app.run() in production code
+@app.route('/api/delivery-staff', methods=['POST'])
+@verify_clerk_token
+def create_delivery_staff(user_id):
+    if not mongo:
+        return jsonify({'error': 'Database not connected'}), 500
+    
+    try:
+        vendor = mongo.db.vendors.find_one({'clerk_user_id': user_id})
+        if not vendor:
+            return jsonify({'error': 'Vendor not found'}), 404
+        
+        staff_data = {
+            'vendor_id': str(vendor['_id']),
+            'name': request.json.get('name', ''),
+            'phone': request.json.get('phone', ''),
+            'email': request.json.get('email', ''),
+            'vehicleType': request.json.get('vehicleType', ''),
+            'vehicleNumber': request.json.get('vehicleNumber', ''),
+            'status': request.json.get('status', 'active'),
+            'createdAt': datetime.utcnow(),
+            'updatedAt': datetime.utcnow()
+        }
+        
+        result = mongo.db.delivery_staff.insert_one(staff_data)
+        staff_data['_id'] = result.inserted_id
+        return jsonify(serialize_doc(staff_data)), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
