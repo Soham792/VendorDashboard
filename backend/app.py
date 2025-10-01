@@ -7,6 +7,8 @@ from functools import wraps
 import base64
 import json
 import hashlib
+import secrets
+import string
 
 app = Flask(__name__)
 
@@ -17,6 +19,9 @@ try:
     if mongo_uri:
         app.config['MONGO_URI'] = mongo_uri
         mongo = PyMongo(app)
+        print("✓ MongoDB connected")
+    else:
+        print("⚠ MONGODB_URI not set")
 except Exception as e:
     print(f"MongoDB error: {e}")
 
@@ -141,6 +146,12 @@ def get_or_create_vendor(user_id):
     except Exception as e:
         print(f"Error in get_or_create_vendor: {e}")
         return None
+
+def generate_secure_password(length=12):
+    """Generate a cryptographically secure random password"""
+    characters = string.ascii_letters + string.digits + string.punctuation
+    password = ''.join(secrets.choice(characters) for _ in range(length))
+    return password
 
 # Routes
 @app.route('/')
@@ -287,7 +298,6 @@ def update_subscription(user_id, subscription_id):
         if not vendor:
             return jsonify({'error': 'Vendor not found'}), 404
         
-        from bson import ObjectId
         sub_obj_id = ObjectId(subscription_id)
         data = request.json or {}
         
@@ -323,7 +333,6 @@ def delete_subscription(user_id, subscription_id):
         if not vendor:
             return jsonify({'error': 'Vendor not found'}), 404
         
-        from bson import ObjectId
         sub_obj_id = ObjectId(subscription_id)
         
         result = mongo.db.subscriptions.delete_one({
@@ -398,7 +407,6 @@ def update_menu(user_id, menu_id):
         if not vendor:
             return jsonify({'error': 'Vendor not found'}), 404
         
-        from bson import ObjectId
         menu_obj_id = ObjectId(menu_id)
         data = request.json or {}
         
@@ -435,7 +443,6 @@ def delete_menu(user_id, menu_id):
         if not vendor:
             return jsonify({'error': 'Vendor not found'}), 404
         
-        from bson import ObjectId
         menu_obj_id = ObjectId(menu_id)
         
         result = mongo.db.menus.delete_one({
@@ -749,6 +756,9 @@ def create_delivery_staff(user_id):
         if not vendor:
             return jsonify({'error': 'Vendor not found'}), 404
         
+        # Auto-generate secure password
+        auto_password = generate_secure_password(12)
+        
         staff_data = {
             'vendor_id': str(vendor['_id']),
             'name': request.json.get('name', ''),
@@ -757,12 +767,74 @@ def create_delivery_staff(user_id):
             'vehicleType': request.json.get('vehicleType', ''),
             'vehicleNumber': request.json.get('vehicleNumber', ''),
             'status': request.json.get('status', 'active'),
+            'loginPassword': auto_password,  # Auto-generated password
             'createdAt': datetime.utcnow(),
             'updatedAt': datetime.utcnow()
         }
         
         result = mongo.db.delivery_staff.insert_one(staff_data)
         staff_data['_id'] = result.inserted_id
+        
         return jsonify(serialize_doc(staff_data)), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/delivery-staff/<staff_id>', methods=['PUT'])
+@verify_clerk_token
+def update_delivery_staff(user_id, staff_id):
+    if not mongo:
+        return jsonify({'error': 'Database not connected'}), 500
+    
+    try:
+        vendor = mongo.db.vendors.find_one({'clerk_user_id': user_id})
+        if not vendor:
+            return jsonify({'error': 'Vendor not found'}), 404
+        
+        staff_obj_id = ObjectId(staff_id)
+        data = request.json or {}
+        
+        update_fields = {}
+        allowed_fields = ['name', 'phone', 'email', 'vehicleType', 'vehicleNumber', 'status']
+        for field in allowed_fields:
+            if field in data:
+                update_fields[field] = data[field]
+        
+        update_fields['updatedAt'] = datetime.utcnow()
+        
+        result = mongo.db.delivery_staff.update_one(
+            {'_id': staff_obj_id, 'vendor_id': str(vendor['_id'])},
+            {'$set': update_fields}
+        )
+        
+        if result.modified_count == 0:
+            return jsonify({'error': 'Staff member not found'}), 404
+        
+        updated_staff = mongo.db.delivery_staff.find_one({'_id': staff_obj_id})
+        return jsonify(serialize_doc(updated_staff))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/delivery-staff/<staff_id>', methods=['DELETE'])
+@verify_clerk_token
+def delete_delivery_staff(user_id, staff_id):
+    if not mongo:
+        return jsonify({'error': 'Database not connected'}), 500
+    
+    try:
+        vendor = mongo.db.vendors.find_one({'clerk_user_id': user_id})
+        if not vendor:
+            return jsonify({'error': 'Vendor not found'}), 404
+        
+        staff_obj_id = ObjectId(staff_id)
+        
+        result = mongo.db.delivery_staff.delete_one({
+            '_id': staff_obj_id,
+            'vendor_id': str(vendor['_id'])
+        })
+        
+        if result.deleted_count == 0:
+            return jsonify({'error': 'Staff member not found'}), 404
+        
+        return jsonify({'message': 'Staff member deleted successfully'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
